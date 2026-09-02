@@ -1,0 +1,74 @@
+const CREDENTIALS_KEY = "admin_credentials";
+
+export interface Credentials {
+  username: string;
+  password: string;
+}
+
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+function apiBase(): string {
+  return import.meta.env.VITE_API_BASE_URL ?? "";
+}
+
+export function getStoredCredentials(): Credentials | null {
+  const raw = sessionStorage.getItem(CREDENTIALS_KEY);
+  if (!raw) return null;
+  return JSON.parse(raw) as Credentials;
+}
+
+export function storeCredentials(username: string, password: string): void {
+  sessionStorage.setItem(CREDENTIALS_KEY, JSON.stringify({ username, password }));
+}
+
+export function clearCredentials(): void {
+  sessionStorage.removeItem(CREDENTIALS_KEY);
+}
+
+export function authHeader(): string {
+  const creds = getStoredCredentials();
+  if (!creds) {
+    throw new Error("Not authenticated");
+  }
+  return `Basic ${btoa(`${creds.username}:${creds.password}`)}`;
+}
+
+export async function login(username: string, password: string): Promise<void> {
+  const response = await fetch(`${apiBase()}/admin/login`, {
+    method: "POST",
+    headers: { Authorization: `Basic ${btoa(`${username}:${password}`)}` },
+  });
+  if (!response.ok) {
+    throw new ApiError("Invalid credentials", response.status);
+  }
+  storeCredentials(username, password);
+}
+
+export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetch(`${apiBase()}${path}`, {
+    ...options,
+    headers: {
+      ...options.headers,
+      Authorization: authHeader(),
+    },
+  });
+
+  if (response.status === 401) {
+    clearCredentials();
+    throw new ApiError("Unauthorized", 401);
+  }
+  if (!response.ok) {
+    const text = await response.text();
+    throw new ApiError(text || response.statusText, response.status);
+  }
+  if (response.status === 204) {
+    return undefined as T;
+  }
+  return (await response.json()) as T;
+}
