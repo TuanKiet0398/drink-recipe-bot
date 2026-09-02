@@ -1,4 +1,4 @@
-from app.db.models import Favourite, Message, User
+from app.db.models import AdminAuditLog, Favourite, Message, User
 
 
 def test_list_users_requires_auth(client):
@@ -38,3 +38,16 @@ def test_block_and_unblock_user(client, db_session):
     assert unblock_response.status_code == 200
     db_session.refresh(user)
     assert user.blocked is False
+
+
+def test_block_user_writes_audit_log(client, db_session):
+    user = User(telegram_user_id="4")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    client.post(f"/admin/users/{user.id}/block", auth=("admin", "admin"))
+
+    logs = db_session.query(AdminAuditLog).filter_by(action="block_user").all()
+    assert len(logs) == 1
+    assert logs[0].target == "4"

@@ -1,7 +1,7 @@
 from io import BytesIO
 from unittest.mock import MagicMock, patch
 
-from app.db.models import Document
+from app.db.models import AdminAuditLog, Document
 
 
 def test_upload_doc_requires_auth(client):
@@ -50,3 +50,22 @@ def test_delete_doc(client, db_session):
     assert response.status_code == 204
     assert db_session.query(Document).count() == 0
     fake_qdrant.delete.assert_called_once()
+
+
+def test_upload_doc_writes_audit_log(client, db_session):
+    fake_qdrant = MagicMock()
+    fake_openai = MagicMock()
+    fake_openai.embeddings.create.return_value.data = [MagicMock(embedding=[0.1])]
+
+    with patch("app.routers.admin_docs.get_qdrant_client", return_value=fake_qdrant), patch(
+        "app.routers.admin_docs.get_openai_client", return_value=fake_openai
+    ):
+        client.post(
+            "/admin/docs",
+            files={"file": ("a.txt", BytesIO(b"content"))},
+            auth=("admin", "admin"),
+        )
+
+    logs = db_session.query(AdminAuditLog).filter_by(action="upload_doc").all()
+    assert len(logs) == 1
+    assert logs[0].target == "a.txt"
