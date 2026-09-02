@@ -1,3 +1,5 @@
+import json
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -66,3 +68,34 @@ def generate(state: AgentState, openai_client, model: str = "gpt-4o-mini") -> Ag
     response = openai_client.chat.completions.create(model=model, messages=messages)
     state.reply = response.choices[0].message.content
     return state
+
+
+def extract_favourite(state: AgentState, db: Session, openai_client, model: str = "gpt-4o-mini") -> None:
+    prompt = (
+        "Extract whether the user expressed a favourite drink preference in this message. "
+        'Respond with strict JSON: {"drink_name": "<name>"} or {"drink_name": null} if none. '
+        f"Message: {state.incoming_text!r}"
+    )
+    response = openai_client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
+    )
+    try:
+        parsed = json.loads(response.choices[0].message.content)
+    except (json.JSONDecodeError, TypeError):
+        return
+
+    drink_name = parsed.get("drink_name")
+    if not drink_name:
+        return
+
+    db.add(
+        Favourite(
+            user_id=state.user_id,
+            drink_name=drink_name,
+            confidence="inferred",
+            source="chat",
+        )
+    )
+    db.commit()

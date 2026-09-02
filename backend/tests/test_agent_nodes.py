@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from app.agent.nodes import fetch_history, retrieve, generate
+from app.agent.nodes import fetch_history, retrieve, generate, extract_favourite
 from app.agent.state import AgentState
 from app.db.models import User, Message, Favourite
 
@@ -65,3 +65,41 @@ def test_generate_calls_openai_with_context_and_sets_reply():
     assert "hojicha" in system_message
     assert "Ceremonial grade matcha is best whisked, not shaken." in system_message
     assert result.reply == "Try our ceremonial grade matcha!"
+
+
+def test_extract_favourite_upserts_when_preference_detected(db_session):
+    user = User(telegram_user_id="7")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    state = AgentState(user_id=user.id, chat_id="7", incoming_text="I really love sencha the most")
+
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content='{"drink_name": "sencha"}'))
+    ]
+
+    extract_favourite(state, db=db_session, openai_client=fake_openai)
+
+    rows = db_session.query(Favourite).filter_by(user_id=user.id).all()
+    assert len(rows) == 1
+    assert rows[0].drink_name == "sencha"
+
+
+def test_extract_favourite_noop_when_no_preference(db_session):
+    user = User(telegram_user_id="8")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    state = AgentState(user_id=user.id, chat_id="8", incoming_text="what time do you close?")
+
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content='{"drink_name": null}'))
+    ]
+
+    extract_favourite(state, db=db_session, openai_client=fake_openai)
+
+    assert db_session.query(Favourite).filter_by(user_id=user.id).count() == 0
