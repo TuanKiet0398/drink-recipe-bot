@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from app.agent.nodes import fetch_history, retrieve
+from app.agent.nodes import fetch_history, retrieve, generate
 from app.agent.state import AgentState
 from app.db.models import User, Message, Favourite
 
@@ -40,3 +40,28 @@ def test_retrieve_queries_qdrant_and_fills_chunks():
     fake_openai.embeddings.create.assert_called_once()
     fake_qdrant.search.assert_called_once()
     assert result.retrieved_chunks == ["Whisk matcha with a bamboo chasen."]
+
+
+def test_generate_calls_openai_with_context_and_sets_reply():
+    state = AgentState(
+        user_id=1,
+        chat_id="1",
+        incoming_text="what matcha do you recommend?",
+        history=[{"role": "user", "content": "hi"}],
+        favourites=["hojicha"],
+        retrieved_chunks=["Ceremonial grade matcha is best whisked, not shaken."],
+    )
+
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content="Try our ceremonial grade matcha!"))
+    ]
+
+    result = generate(state, openai_client=fake_openai)
+
+    fake_openai.chat.completions.create.assert_called_once()
+    call_kwargs = fake_openai.chat.completions.create.call_args.kwargs
+    system_message = call_kwargs["messages"][0]["content"]
+    assert "hojicha" in system_message
+    assert "Ceremonial grade matcha is best whisked, not shaken." in system_message
+    assert result.reply == "Try our ceremonial grade matcha!"
