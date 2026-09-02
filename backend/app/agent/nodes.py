@@ -25,3 +25,23 @@ def fetch_history(state: AgentState, db: Session, limit: int = 10) -> AgentState
     )
     state.favourites = [f.drink_name for f in favourite_rows]
     return state
+
+
+def retrieve(
+    state: AgentState,
+    qdrant_client,
+    openai_client,
+    collection: str = "matcha_knowledge",
+    top_k: int = 5,
+) -> AgentState:
+    embedding = (
+        openai_client.embeddings.create(
+            model="text-embedding-3-small",
+            input=state.incoming_text,
+        )
+        .data[0]
+        .embedding
+    )
+    hits = qdrant_client.search(collection_name=collection, query_vector=embedding, limit=top_k)
+    state.retrieved_chunks = [hit.payload.get("text", "") for hit in hits]
+    return state
