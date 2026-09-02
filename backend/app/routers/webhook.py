@@ -1,13 +1,14 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.agent.clients import get_openai_client, get_qdrant_client
 from app.agent.graph import run_agent
 from app.agent.nodes import extract_favourite
 from app.agent.state import AgentState
+from app.config import get_settings
 from app.db.base import get_db
 from app.db.models import Message, User
 from app.telegram_client import send_message
@@ -16,6 +17,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 FALLBACK_REPLY = "Sorry, having trouble right now — please try again in a bit."
+
+# Fire-and-forget background tasks (e.g. favourite extraction) are held here
+# so the event loop doesn't garbage-collect them mid-flight — asyncio only
+# holds a weak reference to tasks created via create_task.
+_background_tasks: set[asyncio.Task] = set()
 
 
 def _get_or_create_user(db: Session, telegram_user_id: str) -> User:
@@ -34,11 +40,25 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
     # outcome — malformed payloads, agent failures, and Telegram delivery
     # errors are all logged and swallowed here rather than allowed to
     # propagate into a 5xx response.
+    _verify_telegram_secret(request)
     try:
         return await _handle_telegram_webhook(request, db)
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("Unhandled error processing Telegram webhook")
         return {}
+
+
+def _verify_telegram_secret(request: Request) -> None:
+    settings = get_settings()
+    expected = settings.telegram_webhook_secret
+    if not expected:
+        # No secret configured (e.g. local dev) — skip the check.
+        return
+    provided = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if provided != expected:
+        raise HTTPException(status_code=401, detail="Invalid webhook secret token")
 
 
 async def _handle_telegram_webhook(request: Request, db: Session):
@@ -62,6 +82,11 @@ async def _handle_telegram_webhook(request: Request, db: Session):
     state = AgentState(user_id=user.id, chat_id=chat_id, incoming_text=text)
 
     try:
+        # Known non-blocking test-noise issue: get_qdrant_client()/
+        # get_openai_client() are evaluated here as argument expressions
+        # even when run_agent is mocked out in a test, which can attempt
+        # real client construction. Low risk to leave as-is; tests that
+        # care stub these two getters directly (see test_webhook.py).
         result = run_agent(
             state,
             db=db,
@@ -81,7 +106,9 @@ async def _handle_telegram_webhook(request: Request, db: Session):
     except Exception:
         logger.exception("send_message failed for user_id=%s", user.id)
 
-    asyncio.create_task(_extract_favourite_background(state, user.id))
+    task = asyncio.create_task(_extract_favourite_background(state, user.id))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
     return {}
 

@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./local.db"
     admin_username: str = "admin"
     admin_password: str = "admin"
+    telegram_webhook_secret: str = ""
 
 
 @lru_cache
