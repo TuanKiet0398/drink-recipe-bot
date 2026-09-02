@@ -33,6 +33,17 @@ requester during brainstorming, and this design builds on them:
 - **Scope addition: persistent memory.** The agent stores chat history and
   infers/remembers each user's favourite drinks in Postgres, and uses that
   to personalize replies and recommendations.
+- **Scope addition: admin user management.** Admin can list Telegram
+  end-users, view their access/message log, and block/unblock a user from
+  using the bot. Not multi-admin accounts — a single shared Basic Auth
+  credential remains the only admin login.
+- **Scope addition: audit log.** Admin actions (login, doc upload/delete,
+  block/unblock) are recorded and viewable in the admin app.
+- **All background/deploy task execution stays local/Docker.** No managed
+  cloud function or queue service (e.g. AWS Lambda, SQS, Cloud Run jobs)
+  for any current or future async task — everything runs inside the
+  existing Docker Compose containers on the VPS, including CI/CD (see
+  below).
 
 ## Architecture
 
@@ -67,8 +78,10 @@ Admin (browser) ──HTTPS──▶ nginx ──▶ React admin SPA (static)
 ```
 
 Deployment: single VPS running Docker Compose with four containers —
-`backend`, `frontend`, `postgres`, `nginx`. Qdrant Cloud and the OpenAI API
-are external managed dependencies (no containers on the VPS for these).
+`backend`, `frontend`, `postgres`, `nginx`, plus a `github-runner` container
+(self-hosted GitHub Actions runner) used only for CI/CD. Qdrant Cloud and
+the OpenAI API are external managed dependencies (no containers on the VPS
+for these).
 
 ## Components
 
@@ -79,6 +92,8 @@ are external managed dependencies (no containers on the VPS for these).
   Returns HTTP 200 immediately regardless of internal outcome (Telegram
   retries aggressively on non-200 / slow responses; errors are handled
   internally and surfaced to the user as a fallback message instead).
+  If the user's `blocked` flag is set, the update is ACKed but not passed
+  to the agent graph.
 - `GET /health` — liveness check used by the CI smoke test and can be used
   for uptime monitoring.
 - `agent/` — LangGraph graph, Pydantic models for state/tool schemas:
@@ -93,18 +108,32 @@ are external managed dependencies (no containers on the VPS for these).
     preference in this turn, and if so upserts it into the `favourites`
     table. Does not block the reply — the reply is sent first, extraction
     happens as a fire-and-forget follow-up.
-- `admin/` routes (HTTP Basic Auth, credentials from env vars):
-  - `POST /admin/docs` — upload a document (PDF/markdown/txt), chunk it,
-    embed it, upsert into Qdrant, record metadata in Postgres (`documents`
-    table) so the admin UI can list/delete by name.
+- `admin/` routes (HTTP Basic Auth, single shared credential from env vars;
+  every call under `admin/` writes a row to `admin_audit_log`):
+  - `POST /admin/docs` — upload a document (PDF/markdown/txt, including
+    drink recipes — no separate recipe type/table, they're chunked and
+    embedded the same as any other brewing-knowledge doc), chunk it, embed
+    it, upsert into Qdrant, record metadata in Postgres (`documents` table)
+    so the admin UI can list/delete by name.
   - `GET /admin/docs` — list uploaded documents with metadata.
   - `DELETE /admin/docs/{id}` — remove a document's vectors from Qdrant and
     its metadata row.
+  - `GET /admin/users` — list Telegram end-users (last seen, message count,
+    known favourites, `blocked` status).
+  - `POST /admin/users/{id}/block`, `POST /admin/users/{id}/unblock` —
+    toggle whether the webhook will process messages from this user.
+  - `GET /admin/logs/access` — paginated bot request/reply log, queried
+    from `messages` (filterable by user, time range).
+  - `GET /admin/logs/audit` — paginated admin action log, from
+    `admin_audit_log`.
 - `db/` — SQLAlchemy models and Alembic migrations for Postgres:
-  - `users` (Telegram user id, first seen, etc.)
-  - `messages` (user id, role, content, timestamp) — chat history
+  - `users` (Telegram user id, first seen, `blocked` boolean, etc.)
+  - `messages` (user id, role, content, timestamp) — chat history, doubles
+    as the access log
   - `favourites` (user id, drink name, confidence/source, timestamp)
   - `documents` (id, filename, chunk count, uploaded_at) — admin doc metadata
+  - `admin_audit_log` (id, timestamp, action, target, ip) — admin action
+    audit trail (login, doc upload/delete, block/unblock)
 
 ### `frontend/` (React admin SPA)
 
@@ -113,6 +142,11 @@ are external managed dependencies (no containers on the VPS for these).
   sessionStorage for the session).
 - Document manager: upload form (drag-and-drop or file picker), list of
   uploaded docs with delete action, upload status/errors surfaced inline.
+  Recipes are uploaded through the same form as any other doc.
+- Users tab: list of Telegram end-users with last seen/message count/
+  favourites, block/unblock action.
+- Access Log tab: paginated view of bot requests/replies (from `messages`).
+- Audit Log tab: paginated view of admin actions (from `admin_audit_log`).
 - No end-user-facing chat UI in this app — chat happens entirely in
   Telegram. This SPA is admin-only.
 
@@ -122,17 +156,21 @@ are external managed dependencies (no containers on the VPS for these).
 - `docker-compose.yml` (VPS): `backend`, `frontend`, `postgres`, `nginx`
 - `nginx/` config: routes `/` → frontend static, `/api/*` → backend,
   `/webhook/telegram` → backend
-- `.github/workflows/deploy.yml`:
+- `.github/workflows/deploy.yml`, running on a **self-hosted runner**
+  (`runs-on: self-hosted`) — a `github-runner` container registered to the
+  repo and running on the VPS itself, not a GitHub-hosted cloud runner:
   1. On push to `main`: run backend tests (pytest) and frontend tests.
-  2. Build `backend` and `frontend` images, push to GHCR tagged with commit SHA.
-  3. SSH to the VPS, update `docker-compose.yml` image tags (or `.env`),
-     `docker compose pull && docker compose up -d`.
+  2. Build `backend` and `frontend` images directly on the VPS (`docker
+     compose build`) — no external registry push needed since the runner
+     and the deploy target are the same machine.
+  3. `docker compose up -d` to roll out the newly built images.
   4. Hit `/health` after rollout; fail the workflow (and optionally alert)
      if it doesn't come back healthy within a short timeout.
   - Secrets (OpenAI key, Telegram bot token, Qdrant URL/key, Postgres
-    creds, admin basic-auth creds, SSH deploy key) stored as GitHub Actions
-    encrypted secrets, injected as env vars at deploy time — never
-    committed to the repo.
+    creds, admin basic-auth creds) stored as GitHub Actions encrypted
+    secrets, injected as env vars at deploy/build time — never committed
+    to the repo. No SSH deploy key needed since the runner already lives
+    on the VPS.
 
 ## Data flow (chat turn)
 
@@ -165,8 +203,10 @@ are external managed dependencies (no containers on the VPS for these).
 - Backend: pytest — agent nodes unit-tested with mocked OpenAI/Qdrant/DB;
   webhook endpoint integration-tested with a fake Telegram payload;
   admin endpoints tested for upload/list/delete happy path + basic-auth
-  rejection.
-- Frontend: component tests for login, upload, list, delete flows.
+  rejection; webhook tested for the blocked-user skip path; audit log
+  tested to confirm a row is written per admin action.
+- Frontend: component tests for login, upload, list, delete, block/unblock,
+  and the two log views.
 - CI: build the backend image, run `/health` smoke test, before allowing
   deploy to proceed.
 
