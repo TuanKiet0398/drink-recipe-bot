@@ -8,6 +8,18 @@ from app.db.models import Favourite, Message, User
 
 router = APIRouter(prefix="/admin/users")
 
+login_router = APIRouter(prefix="/admin")
+
+
+@login_router.post("/login")
+def login(
+    request: Request,
+    db: Session = Depends(get_db),
+    admin_user: str = Depends(require_admin),
+):
+    log_admin_action(db, action="login", target=admin_user, ip=request.client.host if request.client else "")
+    return {"status": "ok"}
+
 
 @router.get("")
 def list_users(db: Session = Depends(get_db), admin_user: str = Depends(require_admin)):

@@ -51,3 +51,21 @@ def test_block_user_writes_audit_log(client, db_session):
     logs = db_session.query(AdminAuditLog).filter_by(action="block_user").all()
     assert len(logs) == 1
     assert logs[0].target == "4"
+
+
+def test_login_with_valid_credentials_writes_audit_log(client, db_session):
+    response = client.post("/admin/login", auth=("admin", "admin"))
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+    logs = db_session.query(AdminAuditLog).filter_by(action="login").all()
+    assert len(logs) == 1
+    assert logs[0].target == "admin"
+
+
+def test_login_with_bad_credentials_returns_401_and_writes_no_log(client, db_session):
+    response = client.post("/admin/login", auth=("admin", "wrong-password"))
+
+    assert response.status_code == 401
+    assert db_session.query(AdminAuditLog).filter_by(action="login").count() == 0
