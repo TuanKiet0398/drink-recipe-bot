@@ -30,6 +30,18 @@ def _get_or_create_user(db: Session, telegram_user_id: str) -> User:
 
 @router.post("/webhook/telegram")
 async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
+    # The webhook must always ACK with HTTP 200, regardless of internal
+    # outcome — malformed payloads, agent failures, and Telegram delivery
+    # errors are all logged and swallowed here rather than allowed to
+    # propagate into a 5xx response.
+    try:
+        return await _handle_telegram_webhook(request, db)
+    except Exception:
+        logger.exception("Unhandled error processing Telegram webhook")
+        return {}
+
+
+async def _handle_telegram_webhook(request: Request, db: Session):
     payload = await request.json()
     message = payload.get("message", {})
     chat_id = str(message.get("chat", {}).get("id", ""))
@@ -64,7 +76,10 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
     db.add(Message(user_id=user.id, role="assistant", content=reply))
     db.commit()
 
-    await send_message(chat_id=chat_id, text=reply)
+    try:
+        await send_message(chat_id=chat_id, text=reply)
+    except Exception:
+        logger.exception("send_message failed for user_id=%s", user.id)
 
     asyncio.create_task(_extract_favourite_background(state, user.id))
 
@@ -76,7 +91,9 @@ async def _extract_favourite_background(state: AgentState, user_id: int) -> None
 
     db = SessionLocal()
     try:
-        extract_favourite(state, db=db, openai_client=get_openai_client())
+        # extract_favourite makes a blocking OpenAI call; run it off the
+        # event loop thread so it doesn't stall other concurrent requests.
+        await asyncio.to_thread(extract_favourite, state, db=db, openai_client=get_openai_client())
     except Exception:
         logger.exception("extract_favourite failed for user_id=%s", user_id)
     finally:
