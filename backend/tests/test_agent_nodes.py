@@ -1,8 +1,12 @@
-from unittest.mock import MagicMock
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from app.agent.nodes import fetch_history, retrieve, generate, extract_favourite
 from app.agent.state import AgentState
 from app.db.models import User, Message, Favourite
+from app.retry import retry_once
 
 
 def test_fetch_history_loads_recent_messages_and_favourites(db_session):
@@ -24,6 +28,32 @@ def test_fetch_history_loads_recent_messages_and_favourites(db_session):
     assert result.favourites == ["hojicha"]
 
 
+def test_fetch_history_returns_last_n_messages_in_chronological_order(db_session):
+    user = User(telegram_user_id="100")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    base = datetime.now(timezone.utc)
+    for i in range(15):
+        db_session.add(
+            Message(
+                user_id=user.id,
+                role="user",
+                content=f"message-{i}",
+                created_at=base + timedelta(seconds=i),
+            )
+        )
+    db_session.commit()
+
+    state = AgentState(user_id=user.id, chat_id="100", incoming_text="what do you recommend?")
+    result = fetch_history(state, db_session, limit=10)
+
+    assert len(result.history) == 10
+    contents = [m["content"] for m in result.history]
+    assert contents == [f"message-{i}" for i in range(5, 15)]
+
+
 def test_retrieve_queries_qdrant_and_fills_chunks():
     state = AgentState(user_id=1, chat_id="1", incoming_text="how to brew matcha?")
 
@@ -33,6 +63,7 @@ def test_retrieve_queries_qdrant_and_fills_chunks():
     fake_point = MagicMock()
     fake_point.payload = {"text": "Whisk matcha with a bamboo chasen."}
     fake_qdrant = MagicMock()
+    fake_qdrant.collection_exists.return_value = True
     fake_qdrant.search.return_value = [fake_point]
 
     result = retrieve(state, qdrant_client=fake_qdrant, openai_client=fake_openai)
@@ -40,6 +71,56 @@ def test_retrieve_queries_qdrant_and_fills_chunks():
     fake_openai.embeddings.create.assert_called_once()
     fake_qdrant.search.assert_called_once()
     assert result.retrieved_chunks == ["Whisk matcha with a bamboo chasen."]
+
+
+def test_retrieve_creates_collection_when_missing():
+    state = AgentState(user_id=1, chat_id="1", incoming_text="how to brew matcha?")
+
+    fake_openai = MagicMock()
+    fake_openai.embeddings.create.return_value.data = [MagicMock(embedding=[0.1, 0.2, 0.3])]
+
+    fake_qdrant = MagicMock()
+    fake_qdrant.collection_exists.return_value = False
+    fake_qdrant.search.return_value = []
+
+    retrieve(state, qdrant_client=fake_qdrant, openai_client=fake_openai)
+
+    fake_qdrant.create_collection.assert_called_once()
+
+
+def test_retrieve_tolerates_search_failure_and_returns_empty_chunks():
+    state = AgentState(user_id=1, chat_id="1", incoming_text="how to brew matcha?")
+
+    fake_openai = MagicMock()
+    fake_openai.embeddings.create.return_value.data = [MagicMock(embedding=[0.1, 0.2, 0.3])]
+
+    fake_qdrant = MagicMock()
+    fake_qdrant.collection_exists.return_value = True
+    fake_qdrant.search.side_effect = RuntimeError("collection not found")
+
+    result = retrieve(state, qdrant_client=fake_qdrant, openai_client=fake_openai)
+
+    assert result.retrieved_chunks == []
+
+
+def test_retrieve_retries_openai_embedding_once_then_succeeds():
+    state = AgentState(user_id=1, chat_id="1", incoming_text="how to brew matcha?")
+
+    fake_openai = MagicMock()
+    fake_openai.embeddings.create.side_effect = [
+        RuntimeError("transient"),
+        MagicMock(data=[MagicMock(embedding=[0.1, 0.2, 0.3])]),
+    ]
+
+    fake_qdrant = MagicMock()
+    fake_qdrant.collection_exists.return_value = True
+    fake_qdrant.search.return_value = []
+
+    with patch("app.retry.time.sleep"):
+        result = retrieve(state, qdrant_client=fake_qdrant, openai_client=fake_openai)
+
+    assert fake_openai.embeddings.create.call_count == 2
+    assert result.retrieved_chunks == []
 
 
 def test_generate_calls_openai_with_context_and_sets_reply():
@@ -85,6 +166,56 @@ def test_extract_favourite_upserts_when_preference_detected(db_session):
     rows = db_session.query(Favourite).filter_by(user_id=user.id).all()
     assert len(rows) == 1
     assert rows[0].drink_name == "sencha"
+
+
+def test_generate_retries_openai_once_then_succeeds():
+    state = AgentState(user_id=1, chat_id="1", incoming_text="what matcha do you recommend?")
+
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.side_effect = [
+        RuntimeError("transient"),
+        MagicMock(choices=[MagicMock(message=MagicMock(content="Try ceremonial grade!"))]),
+    ]
+
+    with patch("app.retry.time.sleep"):
+        result = generate(state, openai_client=fake_openai)
+
+    assert fake_openai.chat.completions.create.call_count == 2
+    assert result.reply == "Try ceremonial grade!"
+
+
+def test_generate_propagates_when_both_attempts_fail():
+    state = AgentState(user_id=1, chat_id="1", incoming_text="what matcha do you recommend?")
+
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.side_effect = RuntimeError("still down")
+
+    with patch("app.retry.time.sleep"):
+        with pytest.raises(RuntimeError):
+            generate(state, openai_client=fake_openai)
+
+    assert fake_openai.chat.completions.create.call_count == 2
+
+
+def test_retry_once_returns_result_on_first_success():
+    fn = MagicMock(return_value="ok")
+    assert retry_once(fn) == "ok"
+    assert fn.call_count == 1
+
+
+def test_retry_once_retries_and_succeeds():
+    fn = MagicMock(side_effect=[RuntimeError("boom"), "ok"])
+    with patch("app.retry.time.sleep"):
+        assert retry_once(fn) == "ok"
+    assert fn.call_count == 2
+
+
+def test_retry_once_propagates_when_both_attempts_fail():
+    fn = MagicMock(side_effect=RuntimeError("boom"))
+    with patch("app.retry.time.sleep"):
+        with pytest.raises(RuntimeError):
+            retry_once(fn)
+    assert fn.call_count == 2
 
 
 def test_extract_favourite_noop_when_no_preference(db_session):

@@ -3,8 +3,10 @@ import json
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.agent.clients import ensure_collection
 from app.agent.state import AgentState
 from app.db.models import Favourite, Message
+from app.retry import retry_once
 
 
 def fetch_history(state: AgentState, db: Session, limit: int = 10) -> AgentState:
@@ -12,12 +14,13 @@ def fetch_history(state: AgentState, db: Session, limit: int = 10) -> AgentState
         db.execute(
             select(Message)
             .where(Message.user_id == state.user_id)
-            .order_by(Message.created_at.asc())
+            .order_by(Message.created_at.desc(), Message.id.desc())
             .limit(limit)
         )
         .scalars()
         .all()
     )
+    rows = list(reversed(rows))
     state.history = [{"role": m.role, "content": m.content} for m in rows]
 
     favourite_rows = (
@@ -37,14 +40,29 @@ def retrieve(
     top_k: int = 5,
 ) -> AgentState:
     embedding = (
-        openai_client.embeddings.create(
-            model="text-embedding-3-small",
-            input=state.incoming_text,
+        retry_once(
+            lambda: openai_client.embeddings.create(
+                model="text-embedding-3-small",
+                input=state.incoming_text,
+            )
         )
         .data[0]
         .embedding
     )
-    hits = qdrant_client.search(collection_name=collection, query_vector=embedding, limit=top_k)
+
+    ensure_collection(qdrant_client, collection=collection)
+
+    try:
+        hits = retry_once(
+            lambda: qdrant_client.search(collection_name=collection, query_vector=embedding, limit=top_k)
+        )
+    except Exception:
+        # Tolerate a not-yet-existing (or otherwise unreachable) collection:
+        # fall back to no retrieved context rather than failing the whole
+        # agent turn.
+        state.retrieved_chunks = []
+        return state
+
     state.retrieved_chunks = [hit.payload.get("text", "") for hit in hits]
     return state
 
@@ -65,7 +83,7 @@ def generate(state: AgentState, openai_client, model: str = "gpt-4o-mini") -> Ag
     messages.extend(state.history)
     messages.append({"role": "user", "content": state.incoming_text})
 
-    response = openai_client.chat.completions.create(model=model, messages=messages)
+    response = retry_once(lambda: openai_client.chat.completions.create(model=model, messages=messages))
     state.reply = response.choices[0].message.content
     return state
 
