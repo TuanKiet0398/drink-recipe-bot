@@ -90,6 +90,32 @@ def test_delete_channel_with_users_is_rejected_instead_of_crashing(client, db_se
     assert db_session.query(Channel).filter_by(id=channel_id).count() == 1
 
 
+def test_force_delete_channel_cascades_users_messages_and_favourites(client, db_session, channel_id):
+    from app.db.models import Favourite, Message, TokenUsage, User
+
+    user = User(channel_id=channel_id, telegram_user_id="123")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    user_id = user.id
+    db_session.add(Message(user_id=user_id, role="user", content="hi"))
+    db_session.add(Favourite(user_id=user_id, drink_name="matcha"))
+    db_session.add(TokenUsage(user_id=user_id, call_type="generate", model="gpt-4o-mini", prompt_tokens=1, total_tokens=1))
+    db_session.commit()
+
+    with patch("app.routers.admin_channels.channel_manager.sync", new_callable=AsyncMock) as mock_sync:
+        response = client.delete(f"/admin/channels/{channel_id}?force=true", auth=("admin", "admin"))
+
+    assert response.status_code == 204
+    assert db_session.query(Channel).filter_by(id=channel_id).count() == 0
+    assert db_session.query(User).filter_by(id=user_id).count() == 0
+    assert db_session.query(Message).filter_by(user_id=user_id).count() == 0
+    assert db_session.query(Favourite).filter_by(user_id=user_id).count() == 0
+    assert db_session.query(TokenUsage).filter_by(user_id=user_id).count() == 0
+    mock_sync.assert_awaited_once()
+
+
 def test_test_connection_with_a_typed_token_requires_auth(client):
     response = client.post("/admin/channels/test", json={"channel_type": "telegram", "bot_token": "t"})
     assert response.status_code == 401

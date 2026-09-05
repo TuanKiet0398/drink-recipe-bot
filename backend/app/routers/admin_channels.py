@@ -8,7 +8,7 @@ from app.auth import log_admin_action, require_admin
 from app.channel_manager import channel_manager
 from app.crypto import decrypt, encrypt
 from app.db.base import get_db
-from app.db.models import Channel, User
+from app.db.models import Channel, Favourite, Message, TokenUsage, User
 from app.telegram_client import get_me
 
 router = APIRouter(prefix="/admin/channels")
@@ -148,18 +148,29 @@ async def test_existing_channel_connection(
 async def delete_channel(
     channel_id: int,
     request: Request,
+    force: bool = False,
     db: Session = Depends(get_db),
     admin_user: str = Depends(require_admin),
 ):
     channel = _get_channel_or_404(db, channel_id)
     key = channel.key
 
-    user_count = db.query(User).filter_by(channel_id=channel_id).count()
-    if user_count:
+    user_ids = [u.id for u in db.query(User.id).filter_by(channel_id=channel_id).all()]
+    if user_ids and not force:
         raise HTTPException(
             status_code=409,
-            detail=f"Cannot delete: {user_count} user(s) still belong to this channel. Deactivate it instead.",
+            detail=f"Cannot delete: {len(user_ids)} user(s) still belong to this channel. "
+            "Deactivate it instead, or delete with force to also erase their chat history.",
         )
+
+    if user_ids:
+        # Deletes the users' conversation history permanently — only reached
+        # when the admin explicitly opted into ?force=true after being
+        # warned by the 409 above.
+        db.query(Message).filter(Message.user_id.in_(user_ids)).delete(synchronize_session="fetch")
+        db.query(Favourite).filter(Favourite.user_id.in_(user_ids)).delete(synchronize_session="fetch")
+        db.query(TokenUsage).filter(TokenUsage.user_id.in_(user_ids)).delete(synchronize_session="fetch")
+        db.query(User).filter(User.id.in_(user_ids)).delete(synchronize_session="fetch")
 
     db.delete(channel)
     db.commit()
