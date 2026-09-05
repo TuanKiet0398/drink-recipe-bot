@@ -93,6 +93,25 @@ export function ChannelsPage() {
       setError(null);
       await loadChannels();
     } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        const message = readableError(err, "This channel still has users attached.");
+        if (confirm(`${message}\n\nDelete anyway? This permanently erases their chat history.`)) {
+          await forceDeleteChannel(channel);
+          return;
+        }
+        setError(null);
+        return;
+      }
+      setError(readableError(err, "Failed to delete channel"));
+    }
+  }
+
+  async function forceDeleteChannel(channel: Channel): Promise<void> {
+    try {
+      await apiFetch(`/admin/channels/${channel.id}?force=true`, { method: "DELETE" });
+      setError(null);
+      await loadChannels();
+    } catch (err) {
       setError(readableError(err, "Failed to delete channel"));
     }
   }
