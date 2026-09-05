@@ -90,9 +90,10 @@ export function ChannelsPage() {
   async function deleteChannel(channel: Channel): Promise<void> {
     try {
       await apiFetch(`/admin/channels/${channel.id}`, { method: "DELETE" });
+      setError(null);
       await loadChannels();
-    } catch {
-      setError("Failed to delete channel");
+    } catch (err) {
+      setError(readableError(err, "Failed to delete channel"));
     }
   }
 

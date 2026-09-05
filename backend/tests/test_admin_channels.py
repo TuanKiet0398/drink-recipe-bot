@@ -76,6 +76,20 @@ def test_delete_channel_removes_it_and_syncs(client, db_session, channel_id):
     mock_sync.assert_awaited_once()
 
 
+def test_delete_channel_with_users_is_rejected_instead_of_crashing(client, db_session, channel_id):
+    from app.db.models import User
+
+    db_session.add(User(channel_id=channel_id, telegram_user_id="123"))
+    db_session.commit()
+
+    response = client.delete(f"/admin/channels/{channel_id}", auth=("admin", "admin"))
+
+    assert response.status_code == 409
+    assert "user" in response.json()["detail"].lower()
+    # The channel and its user must survive the rejected delete.
+    assert db_session.query(Channel).filter_by(id=channel_id).count() == 1
+
+
 def test_test_connection_with_a_typed_token_requires_auth(client):
     response = client.post("/admin/channels/test", json={"channel_type": "telegram", "bot_token": "t"})
     assert response.status_code == 401

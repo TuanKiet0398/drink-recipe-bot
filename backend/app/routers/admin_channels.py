@@ -8,7 +8,7 @@ from app.auth import log_admin_action, require_admin
 from app.channel_manager import channel_manager
 from app.crypto import decrypt, encrypt
 from app.db.base import get_db
-from app.db.models import Channel
+from app.db.models import Channel, User
 from app.telegram_client import get_me
 
 router = APIRouter(prefix="/admin/channels")
@@ -153,6 +153,13 @@ async def delete_channel(
 ):
     channel = _get_channel_or_404(db, channel_id)
     key = channel.key
+
+    user_count = db.query(User).filter_by(channel_id=channel_id).count()
+    if user_count:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot delete: {user_count} user(s) still belong to this channel. Deactivate it instead.",
+        )
 
     db.delete(channel)
     db.commit()
