@@ -7,6 +7,7 @@ from app.agent.clients import ensure_collection
 from app.agent.state import AgentState
 from app.db.models import Favourite, Message
 from app.retry import retry_once
+from app.token_usage import log_token_usage
 
 
 def fetch_history(state: AgentState, db: Session, limit: int = 10) -> AgentState:
@@ -34,21 +35,21 @@ def fetch_history(state: AgentState, db: Session, limit: int = 10) -> AgentState
 
 def retrieve(
     state: AgentState,
+    db: Session,
     qdrant_client,
     openai_client,
     collection: str = "matcha_knowledge",
     top_k: int = 5,
 ) -> AgentState:
-    embedding = (
-        retry_once(
-            lambda: openai_client.embeddings.create(
-                model="text-embedding-3-small",
-                input=state.incoming_text,
-            )
+    embedding_model = "text-embedding-3-small"
+    response = retry_once(
+        lambda: openai_client.embeddings.create(
+            model=embedding_model,
+            input=state.incoming_text,
         )
-        .data[0]
-        .embedding
     )
+    log_token_usage(db, state.user_id, "embedding", embedding_model, response.usage)
+    embedding = response.data[0].embedding
 
     ensure_collection(qdrant_client, collection=collection)
 
@@ -78,12 +79,13 @@ def _build_system_prompt(state: AgentState) -> str:
     )
 
 
-def generate(state: AgentState, openai_client, model: str = "gpt-4o-mini") -> AgentState:
+def generate(state: AgentState, db: Session, openai_client, model: str = "gpt-4o-mini") -> AgentState:
     messages = [{"role": "system", "content": _build_system_prompt(state)}]
     messages.extend(state.history)
     messages.append({"role": "user", "content": state.incoming_text})
 
     response = retry_once(lambda: openai_client.chat.completions.create(model=model, messages=messages))
+    log_token_usage(db, state.user_id, "generate", model, response.usage)
     state.reply = response.choices[0].message.content
     return state
 
@@ -99,6 +101,7 @@ def extract_favourite(state: AgentState, db: Session, openai_client, model: str 
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
     )
+    log_token_usage(db, state.user_id, "extract_favourite", model, response.usage)
     try:
         parsed = json.loads(response.choices[0].message.content)
     except (json.JSONDecodeError, TypeError):

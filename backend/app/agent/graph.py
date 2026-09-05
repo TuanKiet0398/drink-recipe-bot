@@ -9,8 +9,8 @@ def build_graph(db: Session, qdrant_client, openai_client):
     graph = StateGraph(AgentState)
 
     graph.add_node("fetch_history", lambda s: fetch_history(s, db))
-    graph.add_node("retrieve", lambda s: retrieve(s, qdrant_client, openai_client))
-    graph.add_node("generate", lambda s: generate(s, openai_client))
+    graph.add_node("retrieve", lambda s: retrieve(s, db, qdrant_client, openai_client))
+    graph.add_node("generate", lambda s: generate(s, db, openai_client))
 
     graph.set_entry_point("fetch_history")
     graph.add_edge("fetch_history", "retrieve")

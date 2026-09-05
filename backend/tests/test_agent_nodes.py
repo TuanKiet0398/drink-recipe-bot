@@ -54,7 +54,7 @@ def test_fetch_history_returns_last_n_messages_in_chronological_order(db_session
     assert contents == [f"message-{i}" for i in range(5, 15)]
 
 
-def test_retrieve_queries_qdrant_and_fills_chunks():
+def test_retrieve_queries_qdrant_and_fills_chunks(db_session):
     state = AgentState(user_id=1, chat_id="1", incoming_text="how to brew matcha?")
 
     fake_openai = MagicMock()
@@ -66,14 +66,14 @@ def test_retrieve_queries_qdrant_and_fills_chunks():
     fake_qdrant.collection_exists.return_value = True
     fake_qdrant.search.return_value = [fake_point]
 
-    result = retrieve(state, qdrant_client=fake_qdrant, openai_client=fake_openai)
+    result = retrieve(state, db_session, qdrant_client=fake_qdrant, openai_client=fake_openai)
 
     fake_openai.embeddings.create.assert_called_once()
     fake_qdrant.search.assert_called_once()
     assert result.retrieved_chunks == ["Whisk matcha with a bamboo chasen."]
 
 
-def test_retrieve_creates_collection_when_missing():
+def test_retrieve_creates_collection_when_missing(db_session):
     state = AgentState(user_id=1, chat_id="1", incoming_text="how to brew matcha?")
 
     fake_openai = MagicMock()
@@ -83,12 +83,12 @@ def test_retrieve_creates_collection_when_missing():
     fake_qdrant.collection_exists.return_value = False
     fake_qdrant.search.return_value = []
 
-    retrieve(state, qdrant_client=fake_qdrant, openai_client=fake_openai)
+    retrieve(state, db_session, qdrant_client=fake_qdrant, openai_client=fake_openai)
 
     fake_qdrant.create_collection.assert_called_once()
 
 
-def test_retrieve_tolerates_search_failure_and_returns_empty_chunks():
+def test_retrieve_tolerates_search_failure_and_returns_empty_chunks(db_session):
     state = AgentState(user_id=1, chat_id="1", incoming_text="how to brew matcha?")
 
     fake_openai = MagicMock()
@@ -98,12 +98,12 @@ def test_retrieve_tolerates_search_failure_and_returns_empty_chunks():
     fake_qdrant.collection_exists.return_value = True
     fake_qdrant.search.side_effect = RuntimeError("collection not found")
 
-    result = retrieve(state, qdrant_client=fake_qdrant, openai_client=fake_openai)
+    result = retrieve(state, db_session, qdrant_client=fake_qdrant, openai_client=fake_openai)
 
     assert result.retrieved_chunks == []
 
 
-def test_retrieve_retries_openai_embedding_once_then_succeeds():
+def test_retrieve_retries_openai_embedding_once_then_succeeds(db_session):
     state = AgentState(user_id=1, chat_id="1", incoming_text="how to brew matcha?")
 
     fake_openai = MagicMock()
@@ -117,13 +117,13 @@ def test_retrieve_retries_openai_embedding_once_then_succeeds():
     fake_qdrant.search.return_value = []
 
     with patch("app.retry.time.sleep"):
-        result = retrieve(state, qdrant_client=fake_qdrant, openai_client=fake_openai)
+        result = retrieve(state, db_session, qdrant_client=fake_qdrant, openai_client=fake_openai)
 
     assert fake_openai.embeddings.create.call_count == 2
     assert result.retrieved_chunks == []
 
 
-def test_generate_calls_openai_with_context_and_sets_reply():
+def test_generate_calls_openai_with_context_and_sets_reply(db_session):
     state = AgentState(
         user_id=1,
         chat_id="1",
@@ -138,7 +138,7 @@ def test_generate_calls_openai_with_context_and_sets_reply():
         MagicMock(message=MagicMock(content="Try our ceremonial grade matcha!"))
     ]
 
-    result = generate(state, openai_client=fake_openai)
+    result = generate(state, db_session, openai_client=fake_openai)
 
     fake_openai.chat.completions.create.assert_called_once()
     call_kwargs = fake_openai.chat.completions.create.call_args.kwargs
@@ -168,7 +168,7 @@ def test_extract_favourite_upserts_when_preference_detected(db_session):
     assert rows[0].drink_name == "sencha"
 
 
-def test_generate_retries_openai_once_then_succeeds():
+def test_generate_retries_openai_once_then_succeeds(db_session):
     state = AgentState(user_id=1, chat_id="1", incoming_text="what matcha do you recommend?")
 
     fake_openai = MagicMock()
@@ -178,13 +178,13 @@ def test_generate_retries_openai_once_then_succeeds():
     ]
 
     with patch("app.retry.time.sleep"):
-        result = generate(state, openai_client=fake_openai)
+        result = generate(state, db_session, openai_client=fake_openai)
 
     assert fake_openai.chat.completions.create.call_count == 2
     assert result.reply == "Try ceremonial grade!"
 
 
-def test_generate_propagates_when_both_attempts_fail():
+def test_generate_propagates_when_both_attempts_fail(db_session):
     state = AgentState(user_id=1, chat_id="1", incoming_text="what matcha do you recommend?")
 
     fake_openai = MagicMock()
@@ -192,7 +192,7 @@ def test_generate_propagates_when_both_attempts_fail():
 
     with patch("app.retry.time.sleep"):
         with pytest.raises(RuntimeError):
-            generate(state, openai_client=fake_openai)
+            generate(state, db_session, openai_client=fake_openai)
 
     assert fake_openai.chat.completions.create.call_count == 2
 
