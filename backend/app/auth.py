@@ -13,12 +13,23 @@ security = HTTPBasic()
 
 
 def require_admin(
+    request: Request,
     credentials: HTTPBasicCredentials = Depends(security),
+    db: Session = Depends(get_db),
 ) -> str:
     settings = get_settings()
     correct_username = secrets.compare_digest(credentials.username, settings.admin_username)
     correct_password = secrets.compare_digest(credentials.password, settings.admin_password)
     if not (correct_username and correct_password):
+        # Never log the attempted password — only the attempted username,
+        # so failed logins are visible in the audit log without leaking
+        # credential guesses into it.
+        log_admin_action(
+            db,
+            action="login_failed",
+            target=credentials.username,
+            ip=request.client.host if request.client else "",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid admin credentials",

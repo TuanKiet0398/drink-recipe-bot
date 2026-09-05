@@ -65,8 +65,11 @@ def test_login_with_valid_credentials_writes_audit_log(client, db_session):
     assert logs[0].target == "admin"
 
 
-def test_login_with_bad_credentials_returns_401_and_writes_no_log(client, db_session):
+def test_login_with_bad_credentials_returns_401_and_logs_failed_attempt(client, db_session):
     response = client.post("/admin/login", auth=("admin", "wrong-password"))
 
     assert response.status_code == 401
     assert db_session.query(AdminAuditLog).filter_by(action="login").count() == 0
+    failed = db_session.query(AdminAuditLog).filter_by(action="login_failed").all()
+    assert len(failed) == 1
+    assert failed[0].target == "admin"
