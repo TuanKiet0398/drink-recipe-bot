@@ -43,6 +43,9 @@ export function ChannelsPage() {
   const [formTesting, setFormTesting] = useState(false);
   const [rowTest, setRowTest] = useState<Record<number, TestResult>>({});
   const [rowTesting, setRowTesting] = useState<Record<number, boolean>>({});
+  const [forceDeleteTarget, setForceDeleteTarget] = useState<{ channel: Channel; message: string } | null>(null);
+  const [forceDeleteInput, setForceDeleteInput] = useState("");
+  const [forceDeleting, setForceDeleting] = useState(false);
 
   async function loadChannels(): Promise<void> {
     try {
@@ -94,25 +97,28 @@ export function ChannelsPage() {
       await loadChannels();
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        const message = readableError(err, "This channel still has users attached.");
-        if (confirm(`${message}\n\nDelete anyway? This permanently erases their chat history.`)) {
-          await forceDeleteChannel(channel);
-          return;
-        }
         setError(null);
+        setForceDeleteInput("");
+        setForceDeleteTarget({ channel, message: readableError(err, "This channel still has users attached.") });
         return;
       }
       setError(readableError(err, "Failed to delete channel"));
     }
   }
 
-  async function forceDeleteChannel(channel: Channel): Promise<void> {
+  async function confirmForceDelete(): Promise<void> {
+    if (!forceDeleteTarget) return;
+    setForceDeleting(true);
     try {
-      await apiFetch(`/admin/channels/${channel.id}?force=true`, { method: "DELETE" });
+      await apiFetch(`/admin/channels/${forceDeleteTarget.channel.id}?force=true`, { method: "DELETE" });
       setError(null);
+      setForceDeleteTarget(null);
       await loadChannels();
     } catch (err) {
       setError(readableError(err, "Failed to delete channel"));
+      setForceDeleteTarget(null);
+    } finally {
+      setForceDeleting(false);
     }
   }
 
@@ -374,6 +380,43 @@ export function ChannelsPage() {
           </tbody>
         </table>
       </div>
+
+      {forceDeleteTarget && (
+        <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-lg border border-border bg-card p-5 shadow-card">
+            <h2 className="text-sm font-semibold text-red-700">Delete "{forceDeleteTarget.channel.key}"?</h2>
+            <p className="mt-2 text-sm text-muted-foreground">{forceDeleteTarget.message}</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              This permanently erases those users' chat history. Type the channel's key,{" "}
+              <span className="font-semibold text-foreground">{forceDeleteTarget.channel.key}</span>, to confirm.
+            </p>
+            <input
+              autoFocus
+              value={forceDeleteInput}
+              onChange={(e) => setForceDeleteInput(e.target.value)}
+              placeholder={forceDeleteTarget.channel.key}
+              className="mt-3 w-full rounded-md border border-border px-3 py-1.5 text-sm"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setForceDeleteTarget(null)}
+                className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={forceDeleteInput !== forceDeleteTarget.channel.key || forceDeleting}
+                onClick={confirmForceDelete}
+                className="rounded-md bg-red-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {forceDeleting ? "Deleting…" : "Delete permanently"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
