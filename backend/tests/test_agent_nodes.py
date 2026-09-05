@@ -110,7 +110,7 @@ def test_retrieve_returns_top_chunk_above_threshold(db_session):
 def test_retrieve_filters_out_hits_below_score_threshold(db_session):
     state = AgentState(user_id=1, chat_id="1", incoming_text="how do I brew coffee?")
     fake_openai = _fake_openai_with_rewrite(rewritten_text="how do I brew coffee?")
-    # distance=0.9 -> score=0.1, below the 0.20 default threshold
+    # distance=0.9 -> score=0.1, below the 0.50 default threshold
     fake_chroma, _ = _fake_chroma([{"documents": [["irrelevant tea chunk"]], "distances": [[0.9]]}])
 
     result = retrieve(state, db_session, chroma_client=fake_chroma, openai_client=fake_openai)

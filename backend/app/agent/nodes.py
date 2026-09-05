@@ -115,7 +115,7 @@ def retrieve(
     collection: str = "matcha_knowledge",
     retrieval_k: int = 10,
     final_k: int = 5,
-    score_threshold: float = 0.20,
+    score_threshold: float = 0.50,
 ) -> AgentState:
     def _embed(text: str) -> list[float]:
         response = retry_once(
