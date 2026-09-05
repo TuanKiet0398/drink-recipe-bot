@@ -1,15 +1,11 @@
 import { useEffect, useState } from "react";
-import { apiFetch, authHeader } from "../api/client";
+import { apiFetch } from "../api/client";
 
 interface Document {
   id: number;
   filename: string;
   chunk_count: number;
   uploaded_at: string;
-}
-
-function apiBase(): string {
-  return import.meta.env.VITE_API_BASE_URL ?? "";
 }
 
 export function DocsPage() {
@@ -36,18 +32,10 @@ export function DocsPage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const response = await fetch(`${apiBase()}/admin/docs`, {
-        method: "POST",
-        headers: { Authorization: authHeader() },
-        body: formData,
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || "Upload failed");
-      }
+      await apiFetch<Document>("/admin/docs", { method: "POST", body: formData });
       await loadDocs();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
+    } catch {
+      setError("Failed to upload document");
     } finally {
       setUploading(false);
     }

@@ -1,5 +1,5 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
-import { clearCredentials, getStoredCredentials, login as apiLogin } from "../api/client";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { clearCredentials, getStoredCredentials, login as apiLogin, onUnauthorized } from "../api/client";
 
 interface AuthContextValue {
   isAuthenticated: boolean;
@@ -11,6 +11,10 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(() => getStoredCredentials() !== null);
+
+  useEffect(() => {
+    return onUnauthorized(() => setIsAuthenticated(false));
+  }, []);
 
   async function login(username: string, password: string): Promise<void> {
     await apiLogin(username, password);

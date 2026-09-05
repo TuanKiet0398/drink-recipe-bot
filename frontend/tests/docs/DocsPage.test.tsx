@@ -4,7 +4,7 @@ import { http, HttpResponse } from "msw";
 import { describe, expect, it, beforeEach } from "vitest";
 import { server } from "../mocks/server";
 import { API_BASE } from "../mocks/handlers";
-import { storeCredentials } from "../../src/api/client";
+import { getStoredCredentials, storeCredentials } from "../../src/api/client";
 import { DocsPage } from "../../src/docs/DocsPage";
 
 beforeEach(() => {
@@ -66,5 +66,20 @@ describe("DocsPage", () => {
     server.use(http.get(`${API_BASE}/admin/docs`, () => new HttpResponse(null, { status: 500 })));
     render(<DocsPage />);
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Failed to load documents"));
+  });
+
+  it("clears stored credentials when the upload request comes back 401", async () => {
+    server.use(
+      http.get(`${API_BASE}/admin/docs`, () => HttpResponse.json([])),
+      http.post(`${API_BASE}/admin/docs`, () => new HttpResponse(null, { status: 401 }))
+    );
+    render(<DocsPage />);
+    await waitFor(() => expect(getStoredCredentials()).not.toBeNull());
+
+    const file = new File(["matcha steeping steps"], "recipe.txt", { type: "text/plain" });
+    const input = screen.getByLabelText("Upload document") as HTMLInputElement;
+    await userEvent.upload(input, file);
+
+    await waitFor(() => expect(getStoredCredentials()).toBeNull());
   });
 });

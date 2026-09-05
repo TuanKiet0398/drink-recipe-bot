@@ -39,4 +39,18 @@ describe("App", () => {
     await userEvent.click(screen.getByRole("link", { name: "Users" }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Users" })).toBeInTheDocument());
   });
+
+  it("redirects to /login when a request returns 401 mid-session", async () => {
+    server.use(http.get(`${API_BASE}/admin/docs`, () => HttpResponse.json([])));
+    render(<App />);
+    await userEvent.type(await screen.findByLabelText("Username"), "admin");
+    await userEvent.type(screen.getByLabelText("Password"), "admin");
+    await userEvent.click(screen.getByRole("button", { name: "Log in" }));
+    await waitFor(() => expect(screen.getByText("Documents & Recipes")).toBeInTheDocument());
+
+    server.use(http.get(`${API_BASE}/admin/users`, () => new HttpResponse(null, { status: 401 })));
+    await userEvent.click(screen.getByRole("link", { name: "Users" }));
+
+    await waitFor(() => expect(screen.getByText("Admin Login")).toBeInTheDocument());
+  });
 });

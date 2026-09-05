@@ -31,6 +31,25 @@ export function clearCredentials(): void {
   sessionStorage.removeItem(CREDENTIALS_KEY);
 }
 
+type UnauthorizedListener = () => void;
+
+const unauthorizedListeners = new Set<UnauthorizedListener>();
+
+/**
+ * Register a callback invoked whenever apiFetch clears stored credentials
+ * because a request came back 401. Returns an unsubscribe function.
+ */
+export function onUnauthorized(listener: UnauthorizedListener): () => void {
+  unauthorizedListeners.add(listener);
+  return () => {
+    unauthorizedListeners.delete(listener);
+  };
+}
+
+function notifyUnauthorized(): void {
+  unauthorizedListeners.forEach((listener) => listener());
+}
+
 export function authHeader(): string {
   const creds = getStoredCredentials();
   if (!creds) {
@@ -61,6 +80,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 
   if (response.status === 401) {
     clearCredentials();
+    notifyUnauthorized();
     throw new ApiError("Unauthorized", 401);
   }
   if (!response.ok) {
