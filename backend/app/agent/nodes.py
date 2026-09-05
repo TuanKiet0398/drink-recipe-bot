@@ -1,4 +1,6 @@
 import json
+import logging
+from typing import Callable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -8,6 +10,8 @@ from app.agent.state import AgentState
 from app.db.models import Favourite, Message
 from app.retry import retry_once
 from app.token_usage import log_token_usage
+
+logger = logging.getLogger(__name__)
 
 
 def fetch_history(state: AgentState, db: Session, limit: int = 10) -> AgentState:
@@ -94,14 +98,41 @@ def _build_system_prompt(state: AgentState) -> str:
     )
 
 
-def generate(state: AgentState, db: Session, openai_client, model: str = "gpt-4o-mini") -> AgentState:
+def generate(
+    state: AgentState,
+    db: Session,
+    openai_client,
+    model: str = "gpt-4o-mini",
+    on_delta: Callable[[str], None] | None = None,
+) -> AgentState:
     messages = [{"role": "system", "content": _build_system_prompt(state)}]
     messages.extend(state.history)
     messages.append({"role": "user", "content": state.incoming_text})
 
-    response = retry_once(lambda: openai_client.chat.completions.create(model=model, messages=messages))
-    log_token_usage(db, state.user_id, "generate", model, response.usage)
-    state.reply = response.choices[0].message.content
+    def _stream_once() -> tuple[str, object]:
+        parts: list[str] = []
+        usage = None
+        stream = openai_client.chat.completions.create(
+            model=model,
+            messages=messages,
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+        for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                parts.append(chunk.choices[0].delta.content)
+                if on_delta is not None:
+                    try:
+                        on_delta("".join(parts))
+                    except Exception:
+                        logger.exception("on_delta callback failed")
+            if getattr(chunk, "usage", None) is not None:
+                usage = chunk.usage
+        return "".join(parts), usage
+
+    reply_text, usage = retry_once(_stream_once)
+    log_token_usage(db, state.user_id, "generate", model, usage)
+    state.reply = reply_text
     return state
 
 

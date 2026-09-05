@@ -15,13 +15,20 @@ def test_run_agent_produces_a_reply(db_session):
 
     fake_openai = MagicMock()
     fake_openai.embeddings.create.return_value.data = [MagicMock(embedding=[0.1])]
-    fake_openai.chat.completions.create.return_value.choices = [
-        MagicMock(message=MagicMock(content="Try ceremonial grade!"))
-    ]
+
+    stream_chunk = MagicMock()
+    stream_chunk.choices = [MagicMock(delta=MagicMock(content="Try ceremonial grade!"))]
+    stream_chunk.usage = None
+    final_chunk = MagicMock()
+    final_chunk.choices = []
+    final_chunk.usage = None
+    fake_openai.chat.completions.create.return_value = [stream_chunk, final_chunk]
 
     fake_qdrant = MagicMock()
-    fake_qdrant.search.return_value = []
+    fake_qdrant.query_points.return_value = MagicMock(points=[])
 
-    result = run_agent(state, db=db_session, qdrant_client=fake_qdrant, openai_client=fake_openai)
+    seen: list[str] = []
+    result = run_agent(state, db=db_session, qdrant_client=fake_qdrant, openai_client=fake_openai, on_delta=seen.append)
 
     assert result.reply == "Try ceremonial grade!"
+    assert seen == ["Try ceremonial grade!"]

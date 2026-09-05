@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -11,7 +12,7 @@ from app.agent.state import AgentState
 from app.config import get_settings
 from app.db.base import get_db
 from app.db.models import Message, User
-from app.telegram_client import send_chat_action, send_message
+from app.telegram_client import edit_message_text, send_chat_action, send_message
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -23,6 +24,14 @@ FALLBACK_REPLY = "Sorry, having trouble right now — please try again in a bit.
 # holds a weak reference to tasks created via create_task.
 _background_tasks: set[asyncio.Task] = set()
 
+# Telegram's typing indicator expires after ~5s, so it's refreshed slightly
+# more often than that for the whole duration of the agent run.
+_TYPING_KEEPALIVE_INTERVAL = 4.0
+
+# Minimum time between progressive edits of the streamed reply, to stay
+# well under Telegram's per-chat rate limit for message edits.
+_STREAM_EDIT_MIN_INTERVAL = 1.2
+
 
 def _get_or_create_user(db: Session, telegram_user_id: str) -> User:
     user = db.query(User).filter_by(telegram_user_id=telegram_user_id).one_or_none()
@@ -32,6 +41,52 @@ def _get_or_create_user(db: Session, telegram_user_id: str) -> User:
         db.commit()
         db.refresh(user)
     return user
+
+
+class _StreamDeliverer:
+    """Progressively delivers a streamed reply to Telegram as it's generated.
+
+    `on_delta` is invoked from the worker thread running the agent graph
+    (see `asyncio.to_thread` in `_handle_telegram_webhook`), so it schedules
+    the actual Telegram call back onto the event loop rather than awaiting
+    directly — `run_coroutine_threadsafe` is the standard bridge for that.
+    """
+
+    def __init__(self, loop: asyncio.AbstractEventLoop, chat_id: str) -> None:
+        self._loop = loop
+        self._chat_id = chat_id
+        self.message_id: int | None = None
+        self._last_sent = 0.0
+
+    def on_delta(self, text: str) -> None:
+        asyncio.run_coroutine_threadsafe(self._deliver(text, force=False), self._loop)
+
+    async def finalize(self, text: str) -> None:
+        await self._deliver(text, force=True)
+
+    async def _deliver(self, text: str, force: bool) -> None:
+        now = time.monotonic()
+        if not force and self.message_id is not None and (now - self._last_sent) < _STREAM_EDIT_MIN_INTERVAL:
+            return
+        if not text:
+            return
+        try:
+            if self.message_id is None:
+                self.message_id = await send_message(chat_id=self._chat_id, text=text)
+            else:
+                await edit_message_text(chat_id=self._chat_id, message_id=self.message_id, text=text)
+            self._last_sent = now
+        except Exception:
+            logger.exception("stream delivery failed for chat_id=%s", self._chat_id)
+
+
+async def _keepalive_typing(chat_id: str, user_id: int) -> None:
+    while True:
+        await asyncio.sleep(_TYPING_KEEPALIVE_INTERVAL)
+        try:
+            await send_chat_action(chat_id=chat_id, action="typing")
+        except Exception:
+            logger.exception("typing keepalive failed for user_id=%s", user_id)
 
 
 @router.post("/webhook/telegram")
@@ -86,6 +141,10 @@ async def _handle_telegram_webhook(request: Request, db: Session):
     except Exception:
         logger.exception("send_chat_action failed for user_id=%s", user.id)
 
+    loop = asyncio.get_running_loop()
+    deliverer = _StreamDeliverer(loop, chat_id)
+    keepalive_task = asyncio.create_task(_keepalive_typing(chat_id, user.id))
+
     try:
         # Known non-blocking test-noise issue: get_qdrant_client()/
         # get_openai_client() are evaluated here as argument expressions
@@ -102,17 +161,27 @@ async def _handle_telegram_webhook(request: Request, db: Session):
             db=db,
             qdrant_client=get_qdrant_client(),
             openai_client=get_openai_client(),
+            on_delta=deliverer.on_delta,
         )
         reply = result.reply or FALLBACK_REPLY
     except Exception:
         logger.exception("Agent run failed for user_id=%s", user.id)
         reply = FALLBACK_REPLY
+    finally:
+        keepalive_task.cancel()
+        try:
+            await keepalive_task
+        except asyncio.CancelledError:
+            pass
 
     db.add(Message(user_id=user.id, role="assistant", content=reply))
     db.commit()
 
     try:
-        await send_message(chat_id=chat_id, text=reply)
+        if deliverer.message_id is not None:
+            await deliverer.finalize(reply)
+        else:
+            await send_message(chat_id=chat_id, text=reply)
     except Exception:
         logger.exception("send_message failed for user_id=%s", user.id)
 

@@ -9,6 +9,23 @@ from app.db.models import User, Message, Favourite
 from app.retry import retry_once
 
 
+def _fake_stream(*content_pieces, usage=None):
+    """Builds a fake OpenAI streaming response: an iterable of chunk objects,
+    one per content piece, plus a trailing usage-only chunk (mirroring
+    `stream_options={"include_usage": True}`'s final chunk shape)."""
+    chunks = []
+    for piece in content_pieces:
+        chunk = MagicMock()
+        chunk.choices = [MagicMock(delta=MagicMock(content=piece))]
+        chunk.usage = None
+        chunks.append(chunk)
+    final = MagicMock()
+    final.choices = []
+    final.usage = usage
+    chunks.append(final)
+    return chunks
+
+
 def test_fetch_history_loads_recent_messages_and_favourites(db_session):
     user = User(telegram_user_id="99")
     db_session.add(user)
@@ -154,18 +171,44 @@ def test_generate_calls_openai_with_context_and_sets_reply(db_session):
     )
 
     fake_openai = MagicMock()
-    fake_openai.chat.completions.create.return_value.choices = [
-        MagicMock(message=MagicMock(content="Try our ceremonial grade matcha!"))
-    ]
+    fake_openai.chat.completions.create.return_value = _fake_stream("Try our ceremonial grade matcha!")
 
     result = generate(state, db_session, openai_client=fake_openai)
 
     fake_openai.chat.completions.create.assert_called_once()
     call_kwargs = fake_openai.chat.completions.create.call_args.kwargs
+    assert call_kwargs["stream"] is True
     system_message = call_kwargs["messages"][0]["content"]
     assert "hojicha" in system_message
     assert "Ceremonial grade matcha is best whisked, not shaken." in system_message
     assert result.reply == "Try our ceremonial grade matcha!"
+
+
+def test_generate_calls_on_delta_with_accumulated_text_as_chunks_arrive(db_session):
+    state = AgentState(user_id=1, chat_id="1", incoming_text="what matcha do you recommend?")
+
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value = _fake_stream("Try ", "our ", "matcha!")
+
+    seen: list[str] = []
+    result = generate(state, db_session, openai_client=fake_openai, on_delta=seen.append)
+
+    assert seen == ["Try ", "Try our ", "Try our matcha!"]
+    assert result.reply == "Try our matcha!"
+
+
+def test_generate_swallows_on_delta_errors(db_session):
+    state = AgentState(user_id=1, chat_id="1", incoming_text="what matcha do you recommend?")
+
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value = _fake_stream("Try our matcha!")
+
+    def broken_on_delta(_text: str) -> None:
+        raise RuntimeError("delivery failed")
+
+    result = generate(state, db_session, openai_client=fake_openai, on_delta=broken_on_delta)
+
+    assert result.reply == "Try our matcha!"
 
 
 def test_generate_system_prompt_restricts_recommendations_to_retrieved_knowledge():
@@ -177,9 +220,9 @@ def test_generate_system_prompt_restricts_recommendations_to_retrieved_knowledge
     )
 
     fake_openai = MagicMock()
-    fake_openai.chat.completions.create.return_value.choices = [
-        MagicMock(message=MagicMock(content="We don't have that, but try our matcha latte!"))
-    ]
+    fake_openai.chat.completions.create.return_value = _fake_stream(
+        "We don't have that, but try our matcha latte!"
+    )
 
     generate(state, MagicMock(), openai_client=fake_openai)
 
@@ -197,9 +240,7 @@ def test_generate_system_prompt_forbids_answering_when_no_knowledge_matched():
     )
 
     fake_openai = MagicMock()
-    fake_openai.chat.completions.create.return_value.choices = [
-        MagicMock(message=MagicMock(content="Sorry, we don't carry coffee here."))
-    ]
+    fake_openai.chat.completions.create.return_value = _fake_stream("Sorry, we don't carry coffee here.")
 
     generate(state, MagicMock(), openai_client=fake_openai)
 
@@ -234,7 +275,7 @@ def test_generate_retries_openai_once_then_succeeds(db_session):
     fake_openai = MagicMock()
     fake_openai.chat.completions.create.side_effect = [
         RuntimeError("transient"),
-        MagicMock(choices=[MagicMock(message=MagicMock(content="Try ceremonial grade!"))]),
+        _fake_stream("Try ceremonial grade!"),
     ]
 
     with patch("app.retry.time.sleep"):
