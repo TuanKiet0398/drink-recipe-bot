@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import log_admin_action, require_admin
@@ -39,16 +40,20 @@ def access_log(
 def audit_log(
     limit: int = 50,
     offset: int = 0,
+    action: str | None = None,
+    q: str | None = None,
     db: Session = Depends(get_db),
     admin_user: str = Depends(require_admin),
 ):
-    rows = (
-        db.query(AdminAuditLog)
-        .order_by(AdminAuditLog.created_at.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
+    query = db.query(AdminAuditLog)
+    if action:
+        query = query.filter(AdminAuditLog.action == action)
+    if q:
+        like = f"%{q.lower()}%"
+        query = query.filter(
+            func.lower(AdminAuditLog.target).like(like) | func.lower(AdminAuditLog.ip).like(like)
+        )
+    rows = query.order_by(AdminAuditLog.created_at.desc()).offset(offset).limit(limit).all()
     return [
         {
             "id": a.id,
@@ -59,6 +64,15 @@ def audit_log(
         }
         for a in rows
     ]
+
+
+@router.get("/audit/actions")
+def audit_log_actions(
+    db: Session = Depends(get_db),
+    admin_user: str = Depends(require_admin),
+):
+    rows = db.query(AdminAuditLog.action).distinct().all()
+    return [row[0] for row in rows]
 
 
 @router.delete("/audit/{entry_id}", status_code=204)

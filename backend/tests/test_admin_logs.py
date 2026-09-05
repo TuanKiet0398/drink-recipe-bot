@@ -68,6 +68,51 @@ def test_delete_audit_log_entry_returns_404_when_missing(client, db_session):
     assert response.status_code == 404
 
 
+def test_audit_log_filters_by_action(client, db_session):
+    db_session.add(AdminAuditLog(action="login"))
+    db_session.add(AdminAuditLog(action="login_failed"))
+    db_session.add(AdminAuditLog(action="login_failed"))
+    db_session.commit()
+
+    response = client.get("/admin/logs/audit?action=login_failed", auth=("admin", "admin"))
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 2
+    assert all(row["action"] == "login_failed" for row in body)
+
+
+def test_audit_log_searches_target_and_ip(client, db_session):
+    db_session.add(AdminAuditLog(action="login_failed", target="alice", ip="10.0.0.1"))
+    db_session.add(AdminAuditLog(action="login_failed", target="bob", ip="10.0.0.2"))
+    db_session.add(AdminAuditLog(action="delete_doc", target="menu.txt", ip="10.0.0.1"))
+    db_session.commit()
+
+    by_target = client.get("/admin/logs/audit?q=alice", auth=("admin", "admin")).json()
+    assert len(by_target) == 1
+    assert by_target[0]["target"] == "alice"
+
+    by_ip = client.get("/admin/logs/audit?q=10.0.0.1", auth=("admin", "admin")).json()
+    assert len(by_ip) == 2
+
+    case_insensitive = client.get("/admin/logs/audit?q=ALICE", auth=("admin", "admin")).json()
+    assert len(case_insensitive) == 1
+
+
+def test_audit_log_actions_lists_distinct_values(client, db_session):
+    db_session.add(AdminAuditLog(action="login"))
+    db_session.add(AdminAuditLog(action="login"))
+    db_session.add(AdminAuditLog(action="delete_doc"))
+    db_session.commit()
+
+    response = client.get("/admin/logs/audit/actions", auth=("admin", "admin"))
+    assert response.status_code == 200
+    assert sorted(response.json()) == ["delete_doc", "login"]
+
+
+def test_audit_log_actions_requires_auth(client):
+    assert client.get("/admin/logs/audit/actions").status_code == 401
+
+
 def test_clear_audit_log(client, db_session):
     db_session.add(AdminAuditLog(action="login"))
     db_session.add(AdminAuditLog(action="logout"))
