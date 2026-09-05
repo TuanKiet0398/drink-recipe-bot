@@ -64,3 +64,16 @@ class AdminAuditLog(Base):
     target: Mapped[str] = mapped_column(String, default="")
     ip: Mapped[str] = mapped_column(String, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class TokenUsage(Base):
+    __tablename__ = "token_usage"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    call_type: Mapped[str] = mapped_column(String)
+    model: Mapped[str] = mapped_column(String)
+    prompt_tokens: Mapped[int] = mapped_column(Integer)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_tokens: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
