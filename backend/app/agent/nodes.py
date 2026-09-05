@@ -40,6 +40,7 @@ def retrieve(
     openai_client,
     collection: str = "matcha_knowledge",
     top_k: int = 5,
+    score_threshold: float = 0.35,
 ) -> AgentState:
     embedding_model = "text-embedding-3-small"
     response = retry_once(
@@ -55,7 +56,12 @@ def retrieve(
 
     try:
         hits = retry_once(
-            lambda: qdrant_client.search(collection_name=collection, query_vector=embedding, limit=top_k)
+            lambda: qdrant_client.search(
+                collection_name=collection,
+                query_vector=embedding,
+                limit=top_k,
+                score_threshold=score_threshold,
+            )
         )
     except Exception:
         # Tolerate a not-yet-existing (or otherwise unreachable) collection:
@@ -78,7 +84,12 @@ def _build_system_prompt(state: AgentState) -> str:
         "Only recommend or describe drinks/recipes that appear in the knowledge above. "
         "If the user asks about something not covered there, say the shop doesn't currently "
         "have that, and suggest one of the drinks from the knowledge above instead. "
-        "Never invent a drink, ingredient, or brewing method that isn't in the knowledge."
+        "Never invent a drink, ingredient, or brewing method that isn't in the knowledge — "
+        "not even from your own general knowledge of drinks outside this shop. "
+        "If the knowledge above says '(no matching knowledge found)', you MUST tell the user "
+        "the shop doesn't have a recipe for that and offer to suggest something from what the "
+        "shop does have — do not describe how to make the drink they asked about under any "
+        "circumstances in that case."
     )
 
 

@@ -70,7 +70,27 @@ def test_retrieve_queries_qdrant_and_fills_chunks(db_session):
 
     fake_openai.embeddings.create.assert_called_once()
     fake_qdrant.search.assert_called_once()
+    assert fake_qdrant.search.call_args.kwargs["score_threshold"] == 0.35
     assert result.retrieved_chunks == ["Whisk matcha with a bamboo chasen."]
+
+
+def test_retrieve_returns_no_chunks_when_qdrant_filters_everything_below_threshold(db_session):
+    # Simulates asking about something the shop's knowledge base has
+    # nothing relevant to (e.g. coffee, when only tea/matcha is stocked):
+    # Qdrant's score_threshold means no hits come back at all, rather than
+    # the nearest-but-irrelevant tea chunks.
+    state = AgentState(user_id=1, chat_id="1", incoming_text="how do I brew coffee?")
+
+    fake_openai = MagicMock()
+    fake_openai.embeddings.create.return_value.data = [MagicMock(embedding=[0.1, 0.2, 0.3])]
+
+    fake_qdrant = MagicMock()
+    fake_qdrant.collection_exists.return_value = True
+    fake_qdrant.search.return_value = []
+
+    result = retrieve(state, db_session, qdrant_client=fake_qdrant, openai_client=fake_openai)
+
+    assert result.retrieved_chunks == []
 
 
 def test_retrieve_creates_collection_when_missing(db_session):
@@ -166,6 +186,26 @@ def test_generate_system_prompt_restricts_recommendations_to_retrieved_knowledge
     system_message = fake_openai.chat.completions.create.call_args.kwargs["messages"][0]["content"]
     assert "only recommend" in system_message.lower()
     assert "never invent" in system_message.lower()
+
+
+def test_generate_system_prompt_forbids_answering_when_no_knowledge_matched():
+    state = AgentState(
+        user_id=1,
+        chat_id="1",
+        incoming_text="how do I brew coffee?",
+        retrieved_chunks=[],
+    )
+
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content="Sorry, we don't carry coffee here."))
+    ]
+
+    generate(state, MagicMock(), openai_client=fake_openai)
+
+    system_message = fake_openai.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+    assert "(no matching knowledge found)" in system_message
+    assert "do not describe how to make the drink" in system_message.lower()
 
 
 def test_extract_favourite_upserts_when_preference_detected(db_session):
