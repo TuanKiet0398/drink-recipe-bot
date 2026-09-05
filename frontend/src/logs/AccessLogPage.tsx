@@ -22,6 +22,7 @@ export function AccessLogPage() {
         `/admin/logs/access?limit=${PAGE_SIZE}&offset=${currentOffset}`
       );
       setEntries(data);
+      setError(null);
     } catch {
       setError("Failed to load access log");
     }
@@ -67,7 +68,7 @@ export function AccessLogPage() {
           Previous
         </button>
         <button
-          disabled={entries.length < PAGE_SIZE}
+          disabled={!error && entries.length < PAGE_SIZE}
           onClick={() => setOffset(offset + PAGE_SIZE)}
         >
           Next

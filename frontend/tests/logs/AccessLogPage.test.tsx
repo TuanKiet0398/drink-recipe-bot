@@ -53,4 +53,30 @@ describe("AccessLogPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => expect(screen.getByText("page-2")).toBeInTheDocument());
   });
+
+  it("clears error state when a load succeeds after a previous failure", async () => {
+    // First handler: all requests fail
+    server.use(
+      http.get(`${API_BASE}/admin/logs/access`, () => {
+        return new HttpResponse(null, { status: 500 });
+      })
+    );
+    render(<AccessLogPage />);
+    // Verify error alert appears after first failed load
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Failed to load access log")).toBeInTheDocument());
+    // Override handler to succeed on next request
+    server.use(
+      http.get(`${API_BASE}/admin/logs/access`, () => {
+        return HttpResponse.json([
+          { id: 1, telegram_user_id: "42", role: "user", content: "success", created_at: "now" },
+        ]);
+      })
+    );
+    // Trigger next page (which should now succeed)
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    // Verify error alert is gone and new data is shown
+    await waitFor(() => expect(screen.getByText("success")).toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
 });
