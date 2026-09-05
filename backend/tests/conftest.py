@@ -1,29 +1,31 @@
-import asyncio
-
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-import app.main as main_module
 from app.db.base import Base, get_db
 from app.main import app
 
 
-async def _noop_poller() -> None:
-    # The real poller makes live Telegram API calls in a long-running loop —
-    # replaced with a no-op that just waits to be cancelled on app shutdown,
-    # so tests never hit the network or block on a real long-poll.
-    try:
-        await asyncio.Event().wait()
-    except asyncio.CancelledError:
-        raise
-
-
 @pytest.fixture(autouse=True)
-def _disable_telegram_poller(monkeypatch):
-    monkeypatch.setattr(main_module, "run_poller", _noop_poller)
+def _disable_channel_manager(monkeypatch):
+    # The real ChannelManager.sync() decrypts real channel credentials and
+    # starts real long-poll tasks against the live Telegram API using
+    # backend/local.db (the lifespan's SessionLocal() is bound to the real
+    # DB, not the test's in-memory db_session) — replaced with no-ops so
+    # TestClient(app)'s startup/shutdown never touches the network or a
+    # real channel's bot token during tests.
+    from app.channel_manager import channel_manager
+
+    async def _noop_sync(db):
+        return None
+
+    async def _noop_stop_all():
+        return None
+
+    monkeypatch.setattr(channel_manager, "sync", _noop_sync)
+    monkeypatch.setattr(channel_manager, "stop_all", _noop_stop_all)
 
 TEST_ENGINE = create_engine(
     "sqlite:///:memory:",

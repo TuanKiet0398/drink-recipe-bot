@@ -1,12 +1,12 @@
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.channel_manager import channel_manager
 from app.config import get_settings
-from app.routers import admin_docs, admin_logs, admin_usage, admin_users, health, webhook
-from app.telegram_poller import run_poller
+from app.db.base import SessionLocal
+from app.routers import admin_docs, admin_logs, admin_usage, admin_users, health
 
 logger = logging.getLogger(__name__)
 
@@ -14,15 +14,15 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _warn_on_unsafe_defaults()
-    poller_task = asyncio.create_task(run_poller())
+    db = SessionLocal()
+    try:
+        await channel_manager.sync(db)
+    finally:
+        db.close()
     try:
         yield
     finally:
-        poller_task.cancel()
-        try:
-            await poller_task
-        except asyncio.CancelledError:
-            pass
+        await channel_manager.stop_all()
 
 
 def _warn_on_unsafe_defaults() -> None:
@@ -34,7 +34,6 @@ def _warn_on_unsafe_defaults() -> None:
 app = FastAPI(title="Matcha Bot Backend", lifespan=lifespan)
 
 app.include_router(health.router)
-app.include_router(webhook.router)
 app.include_router(admin_docs.router)
 app.include_router(admin_users.router)
 app.include_router(admin_users.login_router)

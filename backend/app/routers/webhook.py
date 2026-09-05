@@ -1,21 +1,18 @@
 import asyncio
 import logging
 import time
+from typing import Callable
 
-from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.agent.clients import get_chroma_client, get_openai_client
 from app.agent.graph import run_agent
 from app.agent.nodes import extract_favourite
 from app.agent.state import AgentState
-from app.config import get_settings
-from app.db.base import get_db
 from app.db.models import Message, User
 from app.telegram_client import edit_message_text, send_chat_action, send_message
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
 
 FALLBACK_REPLY = "Sorry, having trouble right now — please try again in a bit."
 THINKING_PLACEHOLDER = "🤔 Đang suy nghĩ..."
@@ -34,10 +31,14 @@ _TYPING_KEEPALIVE_INTERVAL = 4.0
 _STREAM_EDIT_MIN_INTERVAL = 1.2
 
 
-def _get_or_create_user(db: Session, telegram_user_id: str) -> User:
-    user = db.query(User).filter_by(telegram_user_id=telegram_user_id).one_or_none()
+def _get_or_create_user(db: Session, channel_id: int, telegram_user_id: str) -> User:
+    user = (
+        db.query(User)
+        .filter_by(channel_id=channel_id, telegram_user_id=telegram_user_id)
+        .one_or_none()
+    )
     if user is None:
-        user = User(telegram_user_id=telegram_user_id)
+        user = User(channel_id=channel_id, telegram_user_id=telegram_user_id)
         db.add(user)
         db.commit()
         db.refresh(user)
@@ -48,13 +49,14 @@ class _StreamDeliverer:
     """Progressively delivers a streamed reply to Telegram as it's generated.
 
     `on_delta` is invoked from the worker thread running the agent graph
-    (see `asyncio.to_thread` in `_handle_telegram_webhook`), so it schedules
+    (see `asyncio.to_thread` in `process_telegram_message`), so it schedules
     the actual Telegram call back onto the event loop rather than awaiting
     directly — `run_coroutine_threadsafe` is the standard bridge for that.
     """
 
-    def __init__(self, loop: asyncio.AbstractEventLoop, chat_id: str) -> None:
+    def __init__(self, loop: asyncio.AbstractEventLoop, bot_token: str, chat_id: str) -> None:
         self._loop = loop
+        self._bot_token = bot_token
         self._chat_id = chat_id
         self.message_id: int | None = None
         self._last_sent = 0.0
@@ -81,69 +83,35 @@ class _StreamDeliverer:
             return
         try:
             if self.message_id is None:
-                self.message_id = await send_message(chat_id=self._chat_id, text=text)
+                self.message_id = await send_message(self._bot_token, chat_id=self._chat_id, text=text)
             else:
-                await edit_message_text(chat_id=self._chat_id, message_id=self.message_id, text=text)
+                await edit_message_text(
+                    self._bot_token, chat_id=self._chat_id, message_id=self.message_id, text=text
+                )
             self._last_sent = time.monotonic()
         except Exception:
             logger.exception("stream delivery failed for chat_id=%s", self._chat_id)
 
 
-async def _keepalive_typing(chat_id: str, user_id: int) -> None:
+async def _keepalive_typing(bot_token: str, chat_id: str, user_id: int) -> None:
     while True:
         await asyncio.sleep(_TYPING_KEEPALIVE_INTERVAL)
         try:
-            await send_chat_action(chat_id=chat_id, action="typing")
+            await send_chat_action(bot_token, chat_id=chat_id, action="typing")
         except Exception:
             logger.exception("typing keepalive failed for user_id=%s", user_id)
 
 
-@router.post("/webhook/telegram")
-async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
-    # The webhook must always ACK with HTTP 200, regardless of internal
-    # outcome — malformed payloads, agent failures, and Telegram delivery
-    # errors are all logged and swallowed here rather than allowed to
-    # propagate into a 5xx response.
-    _verify_telegram_secret(request)
-    try:
-        return await _handle_telegram_webhook(request, db)
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Unhandled error processing Telegram webhook")
-        return {}
-
-
-def _verify_telegram_secret(request: Request) -> None:
-    settings = get_settings()
-    expected = settings.telegram_webhook_secret
-    if not expected:
-        # No secret configured (e.g. local dev) — skip the check.
-        return
-    provided = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-    if provided != expected:
-        raise HTTPException(status_code=401, detail="Invalid webhook secret token")
-
-
-async def _handle_telegram_webhook(request: Request, db: Session):
-    payload = await request.json()
-    message = payload.get("message", {})
-    chat_id = str(message.get("chat", {}).get("id", ""))
-    telegram_user_id = str(message.get("from", {}).get("id", ""))
-    text = message.get("text", "")
-    return await process_telegram_message(chat_id, telegram_user_id, text, db)
-
-
-async def process_telegram_message(chat_id: str, telegram_user_id: str, text: str, db: Session):
-    """Runs the agent for one incoming Telegram text message and delivers the reply.
-
-    Shared by both the webhook route and the long-polling loop (`app.telegram_poller`)
-    so the two ingestion paths can't drift in behavior.
-    """
+async def process_telegram_message(
+    channel_id: int, bot_token: str, chat_id: str, telegram_user_id: str, text: str, db: Session
+):
+    """Runs the agent for one incoming Telegram text message and delivers
+    the reply. Called from the per-channel long-poll loop in
+    `app.telegram_poller`."""
     if not chat_id or not telegram_user_id or not text:
         return {}
 
-    user = _get_or_create_user(db, telegram_user_id)
+    user = _get_or_create_user(db, channel_id, telegram_user_id)
 
     if user.blocked:
         return {}
@@ -154,28 +122,22 @@ async def process_telegram_message(chat_id: str, telegram_user_id: str, text: st
     state = AgentState(user_id=user.id, chat_id=chat_id, incoming_text=text)
 
     try:
-        await send_chat_action(chat_id=chat_id, action="typing")
+        await send_chat_action(bot_token, chat_id=chat_id, action="typing")
     except Exception:
         logger.exception("send_chat_action failed for user_id=%s", user.id)
 
     loop = asyncio.get_running_loop()
-    deliverer = _StreamDeliverer(loop, chat_id)
+    deliverer = _StreamDeliverer(loop, bot_token, chat_id)
     try:
         # Post an immediate "thinking" placeholder so the user gets instant
         # feedback instead of staring at a blank chat until the first token
         # arrives — the streamed reply then edits this same message in place.
-        deliverer.message_id = await send_message(chat_id=chat_id, text=THINKING_PLACEHOLDER)
+        deliverer.message_id = await send_message(bot_token, chat_id=chat_id, text=THINKING_PLACEHOLDER)
     except Exception:
         logger.exception("thinking placeholder failed for user_id=%s", user.id)
-    keepalive_task = asyncio.create_task(_keepalive_typing(chat_id, user.id))
+    keepalive_task = asyncio.create_task(_keepalive_typing(bot_token, chat_id, user.id))
 
     try:
-        # Known non-blocking test-noise issue: get_chroma_client()/
-        # get_openai_client() are evaluated here as argument expressions
-        # even when run_agent is mocked out in a test, which can attempt
-        # real client construction. Low risk to leave as-is; tests that
-        # care stub these two getters directly (see test_webhook.py).
-        #
         # run_agent makes blocking OpenAI/Chroma calls, so it runs off the
         # event loop thread — otherwise it would stall every other request
         # (including the admin API) for the duration of the LLM call.
@@ -205,7 +167,7 @@ async def process_telegram_message(chat_id: str, telegram_user_id: str, text: st
         if deliverer.message_id is not None:
             await deliverer.finalize(reply)
         else:
-            await send_message(chat_id=chat_id, text=reply)
+            await send_message(bot_token, chat_id=chat_id, text=reply)
     except Exception:
         logger.exception("send_message failed for user_id=%s", user.id)
 
