@@ -15,7 +15,9 @@ def test_webhook_creates_user_stores_message_and_replies(client, db_session):
 
     with patch("app.routers.webhook.run_agent") as mock_run_agent, patch(
         "app.routers.webhook.send_message", new_callable=AsyncMock
-    ) as mock_send, patch("app.routers.webhook.extract_favourite"), patch(
+    ) as mock_send, patch(
+        "app.routers.webhook.send_chat_action", new_callable=AsyncMock
+    ) as mock_typing, patch("app.routers.webhook.extract_favourite"), patch(
         # get_qdrant_client()/get_openai_client() are evaluated as argument
         # expressions to run_agent() even though run_agent is mocked below —
         # stub them out too so their real (env-dependent) construction
@@ -36,6 +38,7 @@ def test_webhook_creates_user_stores_message_and_replies(client, db_session):
     assert response.status_code == 200
     mock_send.assert_awaited_once()
     assert mock_send.call_args.kwargs["text"] == "Welcome!"
+    mock_typing.assert_awaited_once_with(chat_id="111", action="typing")
     user = db_session.query(User).filter_by(telegram_user_id="111").one()
     assert user is not None
 
@@ -70,7 +73,9 @@ def test_webhook_returns_200_even_when_send_message_fails(client, db_session):
 
     with patch("app.routers.webhook.run_agent") as mock_run_agent, patch(
         "app.routers.webhook.send_message", new_callable=AsyncMock
-    ) as mock_send, patch("app.routers.webhook.extract_favourite"):
+    ) as mock_send, patch(
+        "app.routers.webhook.send_chat_action", new_callable=AsyncMock
+    ), patch("app.routers.webhook.extract_favourite"):
 
         def fake_run_agent(state, **kwargs):
             state.reply = "Welcome!"
@@ -123,7 +128,9 @@ def test_webhook_accepts_correct_secret_header(client, db_session):
         "app.routers.webhook.run_agent"
     ) as mock_run_agent, patch(
         "app.routers.webhook.send_message", new_callable=AsyncMock
-    ) as mock_send, patch("app.routers.webhook.extract_favourite"):
+    ) as mock_send, patch(
+        "app.routers.webhook.send_chat_action", new_callable=AsyncMock
+    ), patch("app.routers.webhook.extract_favourite"):
 
         def fake_run_agent(state, **kwargs):
             state.reply = "Welcome!"
@@ -148,7 +155,9 @@ def test_webhook_proceeds_when_no_secret_configured(client, db_session):
         "app.routers.webhook.run_agent"
     ) as mock_run_agent, patch(
         "app.routers.webhook.send_message", new_callable=AsyncMock
-    ) as mock_send, patch("app.routers.webhook.extract_favourite"):
+    ) as mock_send, patch(
+        "app.routers.webhook.send_chat_action", new_callable=AsyncMock
+    ), patch("app.routers.webhook.extract_favourite"):
 
         def fake_run_agent(state, **kwargs):
             state.reply = "Welcome!"
@@ -190,6 +199,8 @@ async def test_webhook_background_favourite_extraction_actually_runs(db_session)
     try:
         with patch("app.routers.webhook.run_agent") as mock_run_agent, patch(
             "app.routers.webhook.send_message", new_callable=AsyncMock
+        ), patch(
+            "app.routers.webhook.send_chat_action", new_callable=AsyncMock
         ), patch(
             "app.routers.webhook.get_openai_client", return_value=fake_openai
         ), patch(

@@ -11,7 +11,7 @@ from app.agent.state import AgentState
 from app.config import get_settings
 from app.db.base import get_db
 from app.db.models import Message, User
-from app.telegram_client import send_message
+from app.telegram_client import send_chat_action, send_message
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -82,12 +82,22 @@ async def _handle_telegram_webhook(request: Request, db: Session):
     state = AgentState(user_id=user.id, chat_id=chat_id, incoming_text=text)
 
     try:
+        await send_chat_action(chat_id=chat_id, action="typing")
+    except Exception:
+        logger.exception("send_chat_action failed for user_id=%s", user.id)
+
+    try:
         # Known non-blocking test-noise issue: get_qdrant_client()/
         # get_openai_client() are evaluated here as argument expressions
         # even when run_agent is mocked out in a test, which can attempt
         # real client construction. Low risk to leave as-is; tests that
         # care stub these two getters directly (see test_webhook.py).
-        result = run_agent(
+        #
+        # run_agent makes blocking OpenAI/Qdrant calls, so it runs off the
+        # event loop thread — otherwise it would stall every other request
+        # (including the admin API) for the duration of the LLM call.
+        result = await asyncio.to_thread(
+            run_agent,
             state,
             db=db,
             qdrant_client=get_qdrant_client(),

@@ -15,3 +15,13 @@ async def send_message(chat_id: str, text: str) -> None:
     if response.status_code >= 400:
         logger.error("Telegram sendMessage failed: %s %s", response.status_code, response.text)
         response.raise_for_status()
+
+
+async def send_chat_action(chat_id: str, action: str = "typing") -> None:
+    settings = get_settings()
+    url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendChatAction"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(url, json={"chat_id": chat_id, "action": action})
+    if response.status_code >= 400:
+        logger.error("Telegram sendChatAction failed: %s %s", response.status_code, response.text)
+        response.raise_for_status()
