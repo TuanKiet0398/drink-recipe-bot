@@ -17,6 +17,9 @@ export function AppShell() {
           Shop Assistant Admin
         </span>
         <nav className="flex flex-1 flex-col gap-1">
+          <NavLink to="/panel/usage" className={linkClass}>
+            Usage
+          </NavLink>
           <NavLink to="/panel/docs" className={linkClass}>
             Documents
           </NavLink>
@@ -28,9 +31,6 @@ export function AppShell() {
           </NavLink>
           <NavLink to="/panel/logs/audit" className={linkClass}>
             Audit Log
-          </NavLink>
-          <NavLink to="/panel/usage" className={linkClass}>
-            Usage
           </NavLink>
           <NavLink to="/panel/channels" className={linkClass}>
             Channels

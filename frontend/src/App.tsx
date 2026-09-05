@@ -26,7 +26,7 @@ export function App() {
               </RequireAuth>
             }
           >
-            <Route index element={<Navigate to="/panel/docs" replace />} />
+            <Route index element={<Navigate to="/panel/usage" replace />} />
             <Route path="docs" element={<DocsPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="logs/access" element={<AccessLogPage />} />
