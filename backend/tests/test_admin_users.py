@@ -18,6 +18,7 @@ def test_list_users_returns_summary(client, db_session, channel_id):
     assert response.status_code == 200
     body = response.json()
     assert body[0]["telegram_user_id"] == "1"
+    assert body[0]["channel_id"] == channel_id
     assert body[0]["message_count"] == 1
     assert body[0]["favourites"] == ["matcha"]
     assert body[0]["blocked"] is False

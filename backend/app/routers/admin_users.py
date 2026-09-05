@@ -31,6 +31,7 @@ def list_users(db: Session = Depends(get_db), admin_user: str = Depends(require_
         result.append(
             {
                 "id": u.id,
+                "channel_id": u.channel_id,
                 "telegram_user_id": u.telegram_user_id,
                 "first_seen": u.first_seen.isoformat(),
                 "message_count": message_count,
