@@ -64,13 +64,13 @@ def test_retrieve_queries_qdrant_and_fills_chunks(db_session):
     fake_point.payload = {"text": "Whisk matcha with a bamboo chasen."}
     fake_qdrant = MagicMock()
     fake_qdrant.collection_exists.return_value = True
-    fake_qdrant.search.return_value = [fake_point]
+    fake_qdrant.query_points.return_value = MagicMock(points=[fake_point])
 
     result = retrieve(state, db_session, qdrant_client=fake_qdrant, openai_client=fake_openai)
 
     fake_openai.embeddings.create.assert_called_once()
-    fake_qdrant.search.assert_called_once()
-    assert fake_qdrant.search.call_args.kwargs["score_threshold"] == 0.35
+    fake_qdrant.query_points.assert_called_once()
+    assert fake_qdrant.query_points.call_args.kwargs["score_threshold"] == 0.35
     assert result.retrieved_chunks == ["Whisk matcha with a bamboo chasen."]
 
 
@@ -86,7 +86,7 @@ def test_retrieve_returns_no_chunks_when_qdrant_filters_everything_below_thresho
 
     fake_qdrant = MagicMock()
     fake_qdrant.collection_exists.return_value = True
-    fake_qdrant.search.return_value = []
+    fake_qdrant.query_points.return_value = MagicMock(points=[])
 
     result = retrieve(state, db_session, qdrant_client=fake_qdrant, openai_client=fake_openai)
 
@@ -101,7 +101,7 @@ def test_retrieve_creates_collection_when_missing(db_session):
 
     fake_qdrant = MagicMock()
     fake_qdrant.collection_exists.return_value = False
-    fake_qdrant.search.return_value = []
+    fake_qdrant.query_points.return_value = MagicMock(points=[])
 
     retrieve(state, db_session, qdrant_client=fake_qdrant, openai_client=fake_openai)
 
@@ -116,7 +116,7 @@ def test_retrieve_tolerates_search_failure_and_returns_empty_chunks(db_session):
 
     fake_qdrant = MagicMock()
     fake_qdrant.collection_exists.return_value = True
-    fake_qdrant.search.side_effect = RuntimeError("collection not found")
+    fake_qdrant.query_points.side_effect = RuntimeError("collection not found")
 
     result = retrieve(state, db_session, qdrant_client=fake_qdrant, openai_client=fake_openai)
 
@@ -134,7 +134,7 @@ def test_retrieve_retries_openai_embedding_once_then_succeeds(db_session):
 
     fake_qdrant = MagicMock()
     fake_qdrant.collection_exists.return_value = True
-    fake_qdrant.search.return_value = []
+    fake_qdrant.query_points.return_value = MagicMock(points=[])
 
     with patch("app.retry.time.sleep"):
         result = retrieve(state, db_session, qdrant_client=fake_qdrant, openai_client=fake_openai)

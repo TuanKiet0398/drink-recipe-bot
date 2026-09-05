@@ -55,14 +55,15 @@ def retrieve(
     ensure_collection(qdrant_client, collection=collection)
 
     try:
-        hits = retry_once(
-            lambda: qdrant_client.search(
+        result = retry_once(
+            lambda: qdrant_client.query_points(
                 collection_name=collection,
-                query_vector=embedding,
+                query=embedding,
                 limit=top_k,
                 score_threshold=score_threshold,
             )
         )
+        hits = result.points
     except Exception:
         # Tolerate a not-yet-existing (or otherwise unreachable) collection:
         # fall back to no retrieved context rather than failing the whole
