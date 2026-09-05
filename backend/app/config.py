@@ -8,6 +8,7 @@ class Settings(BaseSettings):
 
     openai_api_key: str = ""
     chroma_persist_dir: str = "./chroma_db"
+    encryption_key: str = ""
     telegram_bot_token: str = ""
     database_url: str = "sqlite:///./local.db"
     admin_username: str = "admin"
