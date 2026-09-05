@@ -7,22 +7,24 @@ import { DocsPage } from "./docs/DocsPage";
 import { UsersPage } from "./users/UsersPage";
 import { AccessLogPage } from "./logs/AccessLogPage";
 import { AuditLogPage } from "./logs/AuditLogPage";
+import { WelcomePage } from "./welcome/WelcomePage";
 
 export function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
         <Routes>
+          <Route path="/" element={<WelcomePage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route
-            path="/"
+            path="/panel"
             element={
               <RequireAuth>
                 <AppShell />
               </RequireAuth>
             }
           >
-            <Route index element={<Navigate to="/docs" replace />} />
+            <Route index element={<Navigate to="/panel/docs" replace />} />
             <Route path="docs" element={<DocsPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="logs/access" element={<AccessLogPage />} />

@@ -16,16 +16,16 @@ export function AppShell() {
           <span aria-hidden="true">🍵</span>
           Matcha Admin
         </span>
-        <NavLink to="/docs" className={linkClass}>
+        <NavLink to="/panel/docs" className={linkClass}>
           Documents
         </NavLink>
-        <NavLink to="/users" className={linkClass}>
+        <NavLink to="/panel/users" className={linkClass}>
           Users
         </NavLink>
-        <NavLink to="/logs/access" className={linkClass}>
+        <NavLink to="/panel/logs/access" className={linkClass}>
           Access Log
         </NavLink>
-        <NavLink to="/logs/audit" className={linkClass}>
+        <NavLink to="/panel/logs/audit" className={linkClass}>
           Audit Log
         </NavLink>
         <button

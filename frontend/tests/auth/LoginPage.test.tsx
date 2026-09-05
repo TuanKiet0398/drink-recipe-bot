@@ -18,7 +18,7 @@ function renderLoginPage() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/docs" element={<div>Docs Page</div>} />
+          <Route path="/panel/docs" element={<div>Docs Page</div>} />
         </Routes>
       </AuthProvider>
     </MemoryRouter>
@@ -26,7 +26,7 @@ function renderLoginPage() {
 }
 
 describe("LoginPage", () => {
-  it("navigates to /docs and stores credentials on successful login", async () => {
+  it("navigates to /panel/docs and stores credentials on successful login", async () => {
     renderLoginPage();
     await userEvent.type(screen.getByLabelText("Username"), "admin");
     await userEvent.type(screen.getByLabelText("Password"), "admin");
@@ -34,6 +34,11 @@ describe("LoginPage", () => {
 
     await waitFor(() => expect(screen.getByText("Docs Page")).toBeInTheDocument());
     expect(getStoredCredentials()).toEqual({ username: "admin", password: "admin" });
+  });
+
+  it("has a back link to the landing page", () => {
+    renderLoginPage();
+    expect(screen.getByRole("link", { name: /back/i })).toHaveAttribute("href", "/");
   });
 
   it("shows an error and does not navigate on bad credentials", async () => {

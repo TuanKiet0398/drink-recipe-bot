@@ -9,11 +9,18 @@ import { App } from "../src/App";
 beforeEach(() => {
   sessionStorage.clear();
   import.meta.env.VITE_API_BASE_URL = API_BASE;
-  window.history.pushState({}, "", "/");
+  window.history.pushState({}, "", "/panel");
 });
 
 describe("App", () => {
-  it("redirects an unauthenticated visitor to /login, then to /docs after login", async () => {
+  it("shows the public welcome page at / with a link into the admin login", () => {
+    window.history.pushState({}, "", "/");
+    render(<App />);
+    expect(screen.getByRole("heading", { name: /steep the knowledge/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Enter Admin Panel" })).toHaveAttribute("href", "/login");
+  });
+
+  it("redirects an unauthenticated visitor to /login, then to /panel/docs after login", async () => {
     server.use(http.get(`${API_BASE}/admin/docs`, () => HttpResponse.json([])));
     render(<App />);
     expect(await screen.findByText("Admin Login")).toBeInTheDocument();
