@@ -1,7 +1,7 @@
 import json
 from unittest.mock import AsyncMock, patch
 
-from app.crypto import decrypt
+from app.crypto import decrypt, encrypt
 from app.db.models import Channel
 
 
@@ -74,3 +74,70 @@ def test_delete_channel_removes_it_and_syncs(client, db_session, channel_id):
     assert response.status_code == 204
     assert db_session.query(Channel).count() == 0
     mock_sync.assert_awaited_once()
+
+
+def test_test_connection_with_a_typed_token_requires_auth(client):
+    response = client.post("/admin/channels/test", json={"channel_type": "telegram", "bot_token": "t"})
+    assert response.status_code == 401
+
+
+def test_test_connection_with_a_typed_valid_token(client, db_session):
+    with patch("app.routers.admin_channels.get_me", new_callable=AsyncMock) as mock_get_me:
+        mock_get_me.return_value = {"username": "my_shop_bot"}
+        response = client.post(
+            "/admin/channels/test",
+            json={"channel_type": "telegram", "bot_token": "good-token"},
+            auth=("admin", "admin"),
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "username": "my_shop_bot"}
+    mock_get_me.assert_awaited_once_with("good-token")
+
+
+def test_test_connection_with_a_typed_invalid_token(client, db_session):
+    with patch("app.routers.admin_channels.get_me", new_callable=AsyncMock) as mock_get_me:
+        mock_get_me.side_effect = ValueError("Unauthorized")
+        response = client.post(
+            "/admin/channels/test",
+            json={"channel_type": "telegram", "bot_token": "bad-token"},
+            auth=("admin", "admin"),
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Unauthorized"
+
+
+def test_test_connection_rejects_unsupported_channel_type(client, db_session):
+    response = client.post(
+        "/admin/channels/test",
+        json={"channel_type": "zalo", "bot_token": "t"},
+        auth=("admin", "admin"),
+    )
+    assert response.status_code == 400
+
+
+def test_test_existing_channel_connection_uses_stored_token(client, db_session):
+    channel = Channel(
+        key="bot-a",
+        display_name="Bot A",
+        channel_type="telegram",
+        encrypted_credentials=encrypt(json.dumps({"bot_token": "stored-token"})),
+        is_active=True,
+    )
+    db_session.add(channel)
+    db_session.commit()
+    db_session.refresh(channel)
+
+    with patch("app.routers.admin_channels.get_me", new_callable=AsyncMock) as mock_get_me:
+        mock_get_me.return_value = {"username": "my_shop_bot"}
+        response = client.post(f"/admin/channels/{channel.id}/test", auth=("admin", "admin"))
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "username": "my_shop_bot"}
+    mock_get_me.assert_awaited_once_with("stored-token")
+
+
+def test_test_existing_channel_connection_returns_404_when_missing(client, db_session):
+    response = client.post("/admin/channels/999/test", auth=("admin", "admin"))
+    assert response.status_code == 404

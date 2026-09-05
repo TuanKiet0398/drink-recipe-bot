@@ -6,9 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.auth import log_admin_action, require_admin
 from app.channel_manager import channel_manager
-from app.crypto import encrypt
+from app.crypto import decrypt, encrypt
 from app.db.base import get_db
 from app.db.models import Channel
+from app.telegram_client import get_me
 
 router = APIRouter(prefix="/admin/channels")
 
@@ -18,6 +19,11 @@ ALLOWED_CHANNEL_TYPES = ("telegram",)
 class ChannelCreate(BaseModel):
     key: str
     display_name: str
+    channel_type: str
+    bot_token: str
+
+
+class ChannelTest(BaseModel):
     channel_type: str
     bot_token: str
 
@@ -73,6 +79,22 @@ async def create_channel(
     return _serialize(channel)
 
 
+@router.post("/test")
+async def test_connection(
+    payload: ChannelTest,
+    admin_user: str = Depends(require_admin),
+):
+    if payload.channel_type not in ALLOWED_CHANNEL_TYPES:
+        raise HTTPException(status_code=400, detail=f"Unsupported channel_type: {payload.channel_type}")
+
+    try:
+        info = await get_me(payload.bot_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {"ok": True, "username": info.get("username")}
+
+
 @router.get("")
 def list_channels(db: Session = Depends(get_db), admin_user: str = Depends(require_admin)):
     channels = db.query(Channel).order_by(Channel.created_at.desc()).all()
@@ -103,6 +125,23 @@ async def update_channel(
     await channel_manager.sync(db)
 
     return _serialize(channel)
+
+
+@router.post("/{channel_id}/test")
+async def test_existing_channel_connection(
+    channel_id: int,
+    db: Session = Depends(get_db),
+    admin_user: str = Depends(require_admin),
+):
+    channel = _get_channel_or_404(db, channel_id)
+    bot_token = json.loads(decrypt(channel.encrypted_credentials))["bot_token"]
+
+    try:
+        info = await get_me(bot_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {"ok": True, "username": info.get("username")}
 
 
 @router.delete("/{channel_id}", status_code=204)

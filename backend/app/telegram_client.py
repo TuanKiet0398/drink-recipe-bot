@@ -55,6 +55,16 @@ async def delete_webhook(bot_token: str) -> None:
         response.raise_for_status()
 
 
+async def get_me(bot_token: str) -> dict:
+    url = f"https://api.telegram.org/bot{bot_token}/getMe"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(url)
+    if response.status_code >= 400:
+        description = response.json().get("description", "Invalid bot token")
+        raise ValueError(description)
+    return response.json()["result"]
+
+
 async def send_chat_action(bot_token: str, chat_id: str, action: str = "typing") -> None:
     url = f"https://api.telegram.org/bot{bot_token}/sendChatAction"
     async with httpx.AsyncClient(timeout=10.0) as client:
