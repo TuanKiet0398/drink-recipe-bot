@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+local.db
+chroma_db/
+tests/
+*.egg-info/
