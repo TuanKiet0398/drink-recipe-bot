@@ -127,6 +127,11 @@ export function WelcomePage() {
           aria-hidden="true"
           className="absolute inset-0 opacity-[0.08] [background-image:radial-gradient(circle,white_1.5px,transparent_1.5px)] [background-size:22px_22px]"
         />
+        {/* Scrim: the gradient's lightest phase (#7BAE72) drops white-text
+            contrast to ~2.6:1 on its own (WCAG AA needs 4.5:1) — 30% black
+            keeps it readable throughout the pan animation (~4.9:1 at the
+            worst point) without touching the brand colors. */}
+        <div aria-hidden="true" className="absolute inset-0 bg-black/30" />
 
         <div className="relative mx-auto grid max-w-5xl grid-cols-1 items-center gap-10 px-6 py-16 md:grid-cols-2 md:py-24">
           <div className="text-center md:text-left">
@@ -156,7 +161,7 @@ export function WelcomePage() {
 
             <div className="animate-fade-up mt-8 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 md:justify-start [animation-delay:400ms]">
               {CAPABILITIES.map((c) => (
-                <span key={c.label} className="flex items-center gap-1.5 text-xs font-medium text-white/75">
+                <span key={c.label} className="flex items-center gap-1.5 text-xs font-medium text-white">
                   <span className="h-1.5 w-1.5 rounded-full bg-gold" aria-hidden="true" />
                   {c.label}
                 </span>
