@@ -37,12 +37,17 @@ export function UsagePage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  async function loadSummary(): Promise<void> {
+    try {
+      const data = await apiFetch<UsageSummary>("/admin/usage/summary");
+      setSummary(data);
+    } catch {
+      /* summary is supplementary; the list's error banner is the primary signal */
+    }
+  }
+
   useEffect(() => {
-    apiFetch<UsageSummary>("/admin/usage/summary")
-      .then(setSummary)
-      .catch(() => {
-        /* summary is supplementary; the list's error banner is the primary signal */
-      });
+    loadSummary();
   }, []);
 
   async function load(currentOffset: number): Promise<void> {
@@ -61,11 +66,41 @@ export function UsagePage() {
     load(offset);
   }, [offset]);
 
+  async function deleteEntry(id: number): Promise<void> {
+    try {
+      await apiFetch(`/admin/usage/${id}`, { method: "DELETE" });
+      await load(offset);
+      await loadSummary();
+    } catch {
+      setError("Failed to delete entry");
+    }
+  }
+
+  async function clearAll(): Promise<void> {
+    if (!confirm("Delete all usage records? This cannot be undone.")) return;
+    try {
+      await apiFetch("/admin/usage", { method: "DELETE" });
+      setOffset(0);
+      await load(0);
+      await loadSummary();
+    } catch {
+      setError("Failed to clear usage");
+    }
+  }
+
   return (
     <div className="flex flex-col gap-5">
-      <div>
-        <h1 className="text-xl font-semibold text-foreground">Usage</h1>
-        <p className="text-sm text-muted-foreground">OpenAI token usage and estimated cost.</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Usage</h1>
+          <p className="text-sm text-muted-foreground">OpenAI token usage and estimated cost.</p>
+        </div>
+        <button
+          onClick={clearAll}
+          className="rounded-md border border-red-200 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
+        >
+          Clear all
+        </button>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -114,18 +149,19 @@ export function UsagePage() {
               <th>Completion</th>
               <th>Total</th>
               <th>When</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
                   Loading usage…
                 </td>
               </tr>
             ) : entries.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
                   No usage recorded yet.
                 </td>
               </tr>
@@ -143,6 +179,14 @@ export function UsagePage() {
                   <td>{entry.completion_tokens ?? "—"}</td>
                   <td>{entry.total_tokens}</td>
                   <td className="text-muted-foreground">{entry.created_at}</td>
+                  <td>
+                    <button
+                      onClick={() => deleteEntry(entry.id)}
+                      className="rounded px-2 py-1 text-sm font-medium text-red-700 hover:bg-red-50"
+                    >
+                      Delete
+                    </button>
+                  </td>
                 </tr>
               ))
             )}

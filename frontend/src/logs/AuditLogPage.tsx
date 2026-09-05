@@ -35,11 +35,39 @@ export function AuditLogPage() {
     load(offset);
   }, [offset]);
 
+  async function deleteEntry(id: number): Promise<void> {
+    try {
+      await apiFetch(`/admin/logs/audit/${id}`, { method: "DELETE" });
+      await load(offset);
+    } catch {
+      setError("Failed to delete entry");
+    }
+  }
+
+  async function clearAll(): Promise<void> {
+    if (!confirm("Delete all audit log entries? This cannot be undone.")) return;
+    try {
+      await apiFetch("/admin/logs/audit", { method: "DELETE" });
+      setOffset(0);
+      await load(0);
+    } catch {
+      setError("Failed to clear audit log");
+    }
+  }
+
   return (
     <div className="flex flex-col gap-5">
-      <div>
-        <h1 className="text-xl font-semibold text-foreground">Audit Log</h1>
-        <p className="text-sm text-muted-foreground">Admin actions taken in this panel.</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Audit Log</h1>
+          <p className="text-sm text-muted-foreground">Admin actions taken in this panel.</p>
+        </div>
+        <button
+          onClick={clearAll}
+          className="rounded-md border border-red-200 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
+        >
+          Clear all
+        </button>
       </div>
       {error && (
         <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -54,18 +82,19 @@ export function AuditLogPage() {
               <th>Target</th>
               <th>IP</th>
               <th>When</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
                   Loading audit log…
                 </td>
               </tr>
             ) : entries.length === 0 ? (
               <tr>
-                <td colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
                   No audit log entries yet.
                 </td>
               </tr>
@@ -80,6 +109,14 @@ export function AuditLogPage() {
                   <td className="font-medium text-foreground">{entry.target}</td>
                   <td className="text-muted-foreground">{entry.ip}</td>
                   <td className="text-muted-foreground">{entry.created_at}</td>
+                  <td>
+                    <button
+                      onClick={() => deleteEntry(entry.id)}
+                      className="rounded px-2 py-1 text-sm font-medium text-red-700 hover:bg-red-50"
+                    >
+                      Delete
+                    </button>
+                  </td>
                 </tr>
               ))
             )}
