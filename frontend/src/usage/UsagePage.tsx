@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api/client";
+import { UsageByModelChart } from "./UsageByModelChart";
 
 interface UsageEntry {
   id: number;
@@ -103,7 +104,7 @@ export function UsagePage() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="rounded-xl border border-border bg-card p-5 shadow-card">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total Calls</h2>
           <p className="mt-1 text-2xl font-semibold text-foreground">{summary.total_calls}</p>
@@ -116,21 +117,9 @@ export function UsagePage() {
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Est. Cost</h2>
           <p className="mt-1 text-2xl font-semibold text-foreground">${summary.estimated_cost_usd}</p>
         </div>
-        <div className="rounded-xl border border-border bg-card p-5 shadow-card">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">By Model</h2>
-          <ul className="mt-1 flex flex-col gap-1">
-            {summary.by_model.length === 0 ? (
-              <li className="text-sm text-muted-foreground">No data yet</li>
-            ) : (
-              summary.by_model.map((m) => (
-                <li key={m.model} className="text-sm text-foreground">
-                  <span>{m.model}</span>: {m.total_tokens} tok
-                </li>
-              ))
-            )}
-          </ul>
-        </div>
       </div>
+
+      <UsageByModelChart byModel={summary.by_model} />
 
       {error && (
         <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
