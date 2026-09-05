@@ -7,8 +7,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     openai_api_key: str = ""
-    qdrant_url: str = ""
-    qdrant_api_key: str = ""
+    chroma_persist_dir: str = "./chroma_db"
     telegram_bot_token: str = ""
     database_url: str = "sqlite:///./local.db"
     admin_username: str = "admin"

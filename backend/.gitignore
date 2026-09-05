@@ -5,3 +5,4 @@ __pycache__/
 .pytest_cache/
 .env
 local.db
+chroma_db/
