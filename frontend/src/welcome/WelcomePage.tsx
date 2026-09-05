@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { BrandIcon } from "../components/BrandIcon";
 import { MatchaIllustration } from "../components/MatchaIllustration";
 
 const CAPABILITIES = [
@@ -111,7 +112,7 @@ export function WelcomePage() {
     <div className="min-h-screen bg-surface">
       <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
         <span className="flex items-center gap-2 text-sm font-semibold text-primary-dark">
-          <span aria-hidden="true">🍵</span>
+          <BrandIcon />
           Shop Assistant Admin
         </span>
         <Link

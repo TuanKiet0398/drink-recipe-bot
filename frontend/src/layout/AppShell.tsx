@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
+import { BrandIcon } from "../components/BrandIcon";
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
   `block rounded-md px-3 py-2 text-sm font-medium transition-colors ${
@@ -13,7 +14,7 @@ export function AppShell() {
     <div className="flex min-h-screen">
       <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-card px-4 py-5 shadow-card">
         <span className="mb-6 flex items-center gap-2 px-3 text-sm font-semibold text-primary-dark">
-          <span aria-hidden="true">🍵</span>
+          <BrandIcon />
           Shop Assistant Admin
         </span>
         <nav className="flex flex-1 flex-col gap-1">
