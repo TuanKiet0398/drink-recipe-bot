@@ -1,9 +1,10 @@
+import json
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.agent.nodes import fetch_history, retrieve, generate, extract_favourite
+from app.agent.nodes import fetch_history, retrieve, rerank, rewrite_query, generate, extract_favourite
 from app.agent.state import AgentState
 from app.db.models import User, Message, Favourite
 from app.retry import retry_once
@@ -71,93 +72,144 @@ def test_fetch_history_returns_last_n_messages_in_chronological_order(db_session
     assert contents == [f"message-{i}" for i in range(5, 15)]
 
 
-def test_retrieve_queries_qdrant_and_fills_chunks(db_session):
+def _fake_chroma(query_results):
+    """query_results: a list of {"documents": [[...]], "distances": [[...]]}
+    dicts, consumed in order by successive collection.query() calls."""
+    fake_collection = MagicMock()
+    fake_collection.query.side_effect = query_results
+    fake_chroma = MagicMock()
+    fake_chroma.get_or_create_collection.return_value = fake_collection
+    return fake_chroma, fake_collection
+
+
+def _fake_openai_with_rewrite(embedding=None, rewritten_text=None):
+    fake_openai = MagicMock()
+    fake_openai.embeddings.create.return_value.data = [MagicMock(embedding=embedding or [0.1, 0.2, 0.3])]
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content=rewritten_text or "how to brew matcha?"))
+    ]
+    fake_openai.chat.completions.create.return_value.usage = None
+    return fake_openai
+
+
+def test_retrieve_returns_top_chunk_above_threshold(db_session):
     state = AgentState(user_id=1, chat_id="1", incoming_text="how to brew matcha?")
+    fake_openai = _fake_openai_with_rewrite(rewritten_text="how to brew matcha?")
+    fake_chroma, fake_collection = _fake_chroma(
+        [{"documents": [["Whisk matcha with a bamboo chasen."]], "distances": [[0.1]]}]
+    )
 
-    fake_openai = MagicMock()
-    fake_openai.embeddings.create.return_value.data = [MagicMock(embedding=[0.1, 0.2, 0.3])]
+    result = retrieve(state, db_session, chroma_client=fake_chroma, openai_client=fake_openai)
 
-    fake_point = MagicMock()
-    fake_point.payload = {"text": "Whisk matcha with a bamboo chasen."}
-    fake_qdrant = MagicMock()
-    fake_qdrant.collection_exists.return_value = True
-    fake_qdrant.query_points.return_value = MagicMock(points=[fake_point])
-
-    result = retrieve(state, db_session, qdrant_client=fake_qdrant, openai_client=fake_openai)
-
-    fake_openai.embeddings.create.assert_called_once()
-    fake_qdrant.query_points.assert_called_once()
-    assert fake_qdrant.query_points.call_args.kwargs["score_threshold"] == 0.35
     assert result.retrieved_chunks == ["Whisk matcha with a bamboo chasen."]
+    # The rewritten query is identical to the original, so only one
+    # embed+query round trip happens (no redundant second search).
+    fake_collection.query.assert_called_once()
 
 
-def test_retrieve_returns_no_chunks_when_qdrant_filters_everything_below_threshold(db_session):
-    # Simulates asking about something the shop's knowledge base has
-    # nothing relevant to (e.g. coffee, when only tea/matcha is stocked):
-    # Qdrant's score_threshold means no hits come back at all, rather than
-    # the nearest-but-irrelevant tea chunks.
+def test_retrieve_filters_out_hits_below_score_threshold(db_session):
     state = AgentState(user_id=1, chat_id="1", incoming_text="how do I brew coffee?")
+    fake_openai = _fake_openai_with_rewrite(rewritten_text="how do I brew coffee?")
+    # distance=0.9 -> score=0.1, below the 0.20 default threshold
+    fake_chroma, _ = _fake_chroma([{"documents": [["irrelevant tea chunk"]], "distances": [[0.9]]}])
 
-    fake_openai = MagicMock()
-    fake_openai.embeddings.create.return_value.data = [MagicMock(embedding=[0.1, 0.2, 0.3])]
-
-    fake_qdrant = MagicMock()
-    fake_qdrant.collection_exists.return_value = True
-    fake_qdrant.query_points.return_value = MagicMock(points=[])
-
-    result = retrieve(state, db_session, qdrant_client=fake_qdrant, openai_client=fake_openai)
+    result = retrieve(state, db_session, chroma_client=fake_chroma, openai_client=fake_openai)
 
     assert result.retrieved_chunks == []
 
 
-def test_retrieve_creates_collection_when_missing(db_session):
+def test_retrieve_searches_twice_and_merges_when_rewrite_differs(db_session):
+    state = AgentState(user_id=1, chat_id="1", incoming_text="cách pha trà xanh")
+    fake_openai = _fake_openai_with_rewrite(rewritten_text="how to brew green tea")
+    fake_openai.chat.completions.create.side_effect = [
+        MagicMock(choices=[MagicMock(message=MagicMock(content="how to brew green tea"))], usage=None),
+        MagicMock(choices=[MagicMock(message=MagicMock(content=json.dumps({"order": [2, 1]})))], usage=None),
+    ]
+    fake_chroma, fake_collection = _fake_chroma(
+        [
+            {"documents": [["Chunk A"]], "distances": [[0.2]]},
+            {"documents": [["Chunk B"]], "distances": [[0.1]]},
+        ]
+    )
+
+    result = retrieve(state, db_session, chroma_client=fake_chroma, openai_client=fake_openai)
+
+    assert fake_collection.query.call_count == 2
+    # Merged order by score would be [Chunk B (0.9), Chunk A (0.8)];
+    # rerank's order=[2, 1] flips that to [Chunk A, Chunk B].
+    assert result.retrieved_chunks == ["Chunk A", "Chunk B"]
+
+
+def test_retrieve_tolerates_chroma_query_failure_and_returns_empty_chunks(db_session):
     state = AgentState(user_id=1, chat_id="1", incoming_text="how to brew matcha?")
+    fake_openai = _fake_openai_with_rewrite(rewritten_text="how to brew matcha?")
+    fake_collection = MagicMock()
+    fake_collection.query.side_effect = RuntimeError("collection not found")
+    fake_chroma = MagicMock()
+    fake_chroma.get_or_create_collection.return_value = fake_collection
 
-    fake_openai = MagicMock()
-    fake_openai.embeddings.create.return_value.data = [MagicMock(embedding=[0.1, 0.2, 0.3])]
-
-    fake_qdrant = MagicMock()
-    fake_qdrant.collection_exists.return_value = False
-    fake_qdrant.query_points.return_value = MagicMock(points=[])
-
-    retrieve(state, db_session, qdrant_client=fake_qdrant, openai_client=fake_openai)
-
-    fake_qdrant.create_collection.assert_called_once()
-
-
-def test_retrieve_tolerates_search_failure_and_returns_empty_chunks(db_session):
-    state = AgentState(user_id=1, chat_id="1", incoming_text="how to brew matcha?")
-
-    fake_openai = MagicMock()
-    fake_openai.embeddings.create.return_value.data = [MagicMock(embedding=[0.1, 0.2, 0.3])]
-
-    fake_qdrant = MagicMock()
-    fake_qdrant.collection_exists.return_value = True
-    fake_qdrant.query_points.side_effect = RuntimeError("collection not found")
-
-    result = retrieve(state, db_session, qdrant_client=fake_qdrant, openai_client=fake_openai)
+    result = retrieve(state, db_session, chroma_client=fake_chroma, openai_client=fake_openai)
 
     assert result.retrieved_chunks == []
 
 
 def test_retrieve_retries_openai_embedding_once_then_succeeds(db_session):
     state = AgentState(user_id=1, chat_id="1", incoming_text="how to brew matcha?")
-
-    fake_openai = MagicMock()
+    fake_openai = _fake_openai_with_rewrite(rewritten_text="how to brew matcha?")
     fake_openai.embeddings.create.side_effect = [
         RuntimeError("transient"),
         MagicMock(data=[MagicMock(embedding=[0.1, 0.2, 0.3])]),
     ]
-
-    fake_qdrant = MagicMock()
-    fake_qdrant.collection_exists.return_value = True
-    fake_qdrant.query_points.return_value = MagicMock(points=[])
+    fake_chroma, _ = _fake_chroma([{"documents": [[]], "distances": [[]]}])
 
     with patch("app.retry.time.sleep"):
-        result = retrieve(state, db_session, qdrant_client=fake_qdrant, openai_client=fake_openai)
+        result = retrieve(state, db_session, chroma_client=fake_chroma, openai_client=fake_openai)
 
     assert fake_openai.embeddings.create.call_count == 2
     assert result.retrieved_chunks == []
+
+
+def test_rewrite_query_falls_back_to_original_question_when_llm_fails():
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.side_effect = RuntimeError("down")
+
+    with patch("app.retry.time.sleep"):
+        result = rewrite_query("how to brew matcha?", [], fake_openai, db=MagicMock(), user_id=1)
+
+    assert result == "how to brew matcha?"
+
+
+def test_rerank_reorders_chunks_by_llm_response():
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content=json.dumps({"order": [2, 1]})))
+    ]
+    fake_openai.chat.completions.create.return_value.usage = None
+
+    result = rerank("q", ["first", "second"], fake_openai, db=MagicMock(), user_id=1)
+
+    assert result == ["second", "first"]
+
+
+def test_rerank_keeps_original_order_when_llm_response_is_incomplete():
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content=json.dumps({"order": [1]})))  # missing chunk 2
+    ]
+    fake_openai.chat.completions.create.return_value.usage = None
+
+    result = rerank("q", ["first", "second"], fake_openai, db=MagicMock(), user_id=1)
+
+    assert result == ["first", "second"]
+
+
+def test_rerank_skips_llm_call_for_a_single_chunk():
+    fake_openai = MagicMock()
+
+    result = rerank("q", ["only chunk"], fake_openai, db=MagicMock(), user_id=1)
+
+    assert result == ["only chunk"]
+    fake_openai.chat.completions.create.assert_not_called()
 
 
 def test_generate_calls_openai_with_context_and_sets_reply(db_session):

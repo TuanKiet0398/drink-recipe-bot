@@ -1,15 +1,9 @@
 from functools import lru_cache
 
+from chromadb import PersistentClient
 from openai import OpenAI
-from qdrant_client import QdrantClient
 
 from app.config import get_settings
-
-
-@lru_cache
-def get_qdrant_client() -> QdrantClient:
-    settings = get_settings()
-    return QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
 
 
 @lru_cache
@@ -18,25 +12,15 @@ def get_openai_client() -> OpenAI:
     return OpenAI(api_key=settings.openai_api_key)
 
 
-def ensure_collection(qdrant_client, collection: str = "matcha_knowledge", vector_size: int = 1536) -> None:
-    """Idempotently make sure `collection` exists in Qdrant.
+@lru_cache
+def get_chroma_client() -> PersistentClient:
+    settings = get_settings()
+    return PersistentClient(path=settings.chroma_persist_dir)
 
-    Cheap enough to call before every upload/search — avoids requiring an
-    operator to manually create the collection against a fresh Qdrant
-    instance before the bot can be used.
-    """
-    from qdrant_client.models import Distance, VectorParams
 
-    if qdrant_client.collection_exists(collection):
-        return
-
-    try:
-        qdrant_client.create_collection(
-            collection_name=collection,
-            vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
-        )
-    except Exception as exc:  # noqa: BLE001 - tolerate races where another
-        # process/request created the collection between the exists-check
-        # and create_collection call.
-        if "already exists" not in str(exc).lower():
-            raise
+def get_or_create_collection(chroma_client, name: str = "matcha_knowledge"):
+    """Idempotently get (or create) `name`, configured for cosine distance so
+    `1 - distance` matches the cosine-similarity score semantics the rest of
+    the codebase already assumes (previously provided by Qdrant's
+    `Distance.COSINE`)."""
+    return chroma_client.get_or_create_collection(name, metadata={"hnsw:space": "cosine"})

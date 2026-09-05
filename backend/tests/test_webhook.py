@@ -2,6 +2,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.db.models import AdminAuditLog, User
+from app.routers.webhook import THINKING_PLACEHOLDER
 
 
 def test_webhook_creates_user_stores_message_and_replies(client, db_session):
@@ -16,16 +17,20 @@ def test_webhook_creates_user_stores_message_and_replies(client, db_session):
     with patch("app.routers.webhook.run_agent") as mock_run_agent, patch(
         "app.routers.webhook.send_message", new_callable=AsyncMock
     ) as mock_send, patch(
+        "app.routers.webhook.edit_message_text", new_callable=AsyncMock
+    ) as mock_edit, patch(
         "app.routers.webhook.send_chat_action", new_callable=AsyncMock
     ) as mock_typing, patch("app.routers.webhook.extract_favourite"), patch(
-        # get_qdrant_client()/get_openai_client() are evaluated as argument
+        # get_chroma_client()/get_openai_client() are evaluated as argument
         # expressions to run_agent() even though run_agent is mocked below —
         # stub them out too so their real (env-dependent) construction
         # doesn't get exercised in this unit test.
-        "app.routers.webhook.get_qdrant_client",
+        "app.routers.webhook.get_chroma_client",
         return_value=MagicMock(),
     ), patch("app.routers.webhook.get_openai_client", return_value=MagicMock()):
         from app.agent.state import AgentState
+
+        mock_send.return_value = 555
 
         def fake_run_agent(state, **kwargs):
             state.reply = "Welcome!"
@@ -36,8 +41,11 @@ def test_webhook_creates_user_stores_message_and_replies(client, db_session):
         response = client.post("/webhook/telegram", json=payload)
 
     assert response.status_code == 200
+    # An instant "thinking" placeholder is sent up front...
     mock_send.assert_awaited_once()
-    assert mock_send.call_args.kwargs["text"] == "Welcome!"
+    assert mock_send.call_args.kwargs["text"] == THINKING_PLACEHOLDER
+    # ...then edited in place with the final reply.
+    mock_edit.assert_awaited_once_with(chat_id="111", message_id=555, text="Welcome!")
     mock_typing.assert_awaited_once_with(chat_id="111", action="typing")
 
 
@@ -57,9 +65,9 @@ def test_webhook_delivers_streamed_reply_progressively(client, db_session):
     ) as mock_edit, patch(
         "app.routers.webhook.send_chat_action", new_callable=AsyncMock
     ), patch("app.routers.webhook.extract_favourite"), patch(
-        "app.routers.webhook.get_qdrant_client", return_value=MagicMock()
+        "app.routers.webhook.get_chroma_client", return_value=MagicMock()
     ), patch("app.routers.webhook.get_openai_client", return_value=MagicMock()):
-        mock_send.return_value = 999  # Telegram message_id from the first chunk
+        mock_send.return_value = 999  # Telegram message_id of the thinking placeholder
 
         def fake_run_agent(state, **kwargs):
             on_delta = kwargs["on_delta"]
@@ -73,13 +81,16 @@ def test_webhook_delivers_streamed_reply_progressively(client, db_session):
         response = client.post("/webhook/telegram", json=payload)
 
     assert response.status_code == 200
-    # First delta creates the message (no message_id yet).
+    # Only the thinking placeholder is ever sent as a new message...
     mock_send.assert_awaited_once()
-    assert mock_send.call_args.kwargs["text"] == "Try "
-    # The final delivery (finalize, forced) edits that same message with the
-    # complete reply — the second on_delta call is throttled away since it
-    # arrives well within the minimum edit interval of the first.
-    mock_edit.assert_awaited_once_with(chat_id="222", message_id=999, text="Try our matcha!")
+    assert mock_send.call_args.kwargs["text"] == THINKING_PLACEHOLDER
+    # ...the first delta edits it in place, the second on_delta call is
+    # throttled away since it arrives well within the minimum edit interval,
+    # and the final delivery (finalize, forced) edits it again with the
+    # complete reply.
+    assert mock_edit.await_count == 2
+    mock_edit.assert_any_await(chat_id="222", message_id=999, text="Try ")
+    mock_edit.assert_awaited_with(chat_id="222", message_id=999, text="Try our matcha!")
 
 
 async def test_keepalive_typing_refreshes_on_each_interval_tick():
@@ -163,7 +174,10 @@ def test_webhook_returns_200_even_when_send_message_fails(client, db_session):
         response = client.post("/webhook/telegram", json=payload)
 
     assert response.status_code == 200
-    mock_send.assert_awaited_once()
+    # The placeholder send fails, so the deliverer never gets a message_id
+    # and the final reply falls back to a second (also-failing) send.
+    assert mock_send.await_count == 2
+    mock_send.assert_awaited_with(chat_id="333", text="Welcome!")
     user = db_session.query(User).filter_by(telegram_user_id="333").one()
     assert user is not None
 

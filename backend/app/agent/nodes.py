@@ -5,13 +5,17 @@ from typing import Callable
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.agent.clients import ensure_collection
+from app.agent.clients import get_or_create_collection
 from app.agent.state import AgentState
 from app.db.models import Favourite, Message
 from app.retry import retry_once
 from app.token_usage import log_token_usage
 
 logger = logging.getLogger(__name__)
+
+EMBEDDING_MODEL = "text-embedding-3-small"
+REWRITE_MODEL = "gpt-4o-mini"
+RERANK_MODEL = "gpt-4o-mini"
 
 
 def fetch_history(state: AgentState, db: Session, limit: int = 10) -> AgentState:
@@ -37,45 +41,117 @@ def fetch_history(state: AgentState, db: Session, limit: int = 10) -> AgentState
     return state
 
 
+def rewrite_query(question: str, history: list[dict], openai_client, db: Session, user_id: int | None) -> str:
+    """Condenses the conversation + question into a focused knowledge-base
+    search query. Falls back to the original question if the LLM call
+    fails, so retrieval degrades to a single (still-valid) search rather
+    than failing the chat turn."""
+    prompt = (
+        "You are about to search a knowledge base to answer the user's question.\n"
+        f"Conversation so far: {history}\n"
+        f"User's current question: {question}\n\n"
+        "Condense this into a single short, specific search query most likely "
+        "to surface relevant content, folding in any needed context from the "
+        "conversation. Respond ONLY with the query text, nothing else."
+    )
+
+    def _call():
+        return openai_client.chat.completions.create(
+            model=REWRITE_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+    try:
+        response = retry_once(_call)
+    except Exception:
+        logger.exception("rewrite_query failed; falling back to the original question")
+        return question
+
+    log_token_usage(db, user_id, "rewrite_query", REWRITE_MODEL, response.usage)
+    rewritten = (response.choices[0].message.content or "").strip()
+    return rewritten or question
+
+
+def rerank(question: str, chunks: list[str], openai_client, db: Session, user_id: int | None) -> list[str]:
+    """Reorders `chunks` by relevance to `question` via an LLM call. Falls
+    back to the original (retrieval-score) order if the call fails or
+    returns an incomplete ranking."""
+    if len(chunks) <= 1:
+        return chunks
+
+    numbered = "\n\n".join(f"# CHUNK {i + 1}:\n{chunk}" for i, chunk in enumerate(chunks))
+    prompt = (
+        f"The user asked: {question}\n\n"
+        "Rank the following chunks by relevance to the question, most "
+        'relevant first. Respond with strict JSON: {"order": [chunk numbers, '
+        "most relevant first]}, including every chunk number exactly once.\n\n"
+        f"{numbered}"
+    )
+
+    def _call():
+        return openai_client.chat.completions.create(
+            model=RERANK_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+        )
+
+    try:
+        response = retry_once(_call)
+        log_token_usage(db, user_id, "rerank", RERANK_MODEL, response.usage)
+        order = json.loads(response.choices[0].message.content)["order"]
+        reranked = [chunks[i - 1] for i in order if 1 <= i <= len(chunks)]
+        if len(reranked) == len(chunks):
+            return reranked
+    except Exception:
+        logger.exception("rerank failed; keeping retrieval order")
+    return chunks
+
+
 def retrieve(
     state: AgentState,
     db: Session,
-    qdrant_client,
+    chroma_client,
     openai_client,
     collection: str = "matcha_knowledge",
-    top_k: int = 5,
-    score_threshold: float = 0.35,
+    retrieval_k: int = 10,
+    final_k: int = 5,
+    score_threshold: float = 0.20,
 ) -> AgentState:
-    embedding_model = "text-embedding-3-small"
-    response = retry_once(
-        lambda: openai_client.embeddings.create(
-            model=embedding_model,
-            input=state.incoming_text,
+    def _embed(text: str) -> list[float]:
+        response = retry_once(
+            lambda: openai_client.embeddings.create(model=EMBEDDING_MODEL, input=text)
         )
-    )
-    log_token_usage(db, state.user_id, "embedding", embedding_model, response.usage)
-    embedding = response.data[0].embedding
-
-    ensure_collection(qdrant_client, collection=collection)
+        log_token_usage(db, state.user_id, "embedding", EMBEDDING_MODEL, response.usage)
+        return response.data[0].embedding
 
     try:
-        result = retry_once(
-            lambda: qdrant_client.query_points(
-                collection_name=collection,
-                query=embedding,
-                limit=top_k,
-                score_threshold=score_threshold,
-            )
-        )
-        hits = result.points
+        coll = get_or_create_collection(chroma_client, collection)
+
+        rewritten = rewrite_query(state.incoming_text, state.history, openai_client, db, state.user_id)
+        query_texts = [state.incoming_text]
+        if rewritten != state.incoming_text:
+            query_texts.append(rewritten)
+
+        best_scores: dict[str, float] = {}
+        for query_text in query_texts:
+            embedding = _embed(query_text)
+            result = coll.query(query_embeddings=[embedding], n_results=retrieval_k)
+            texts = result["documents"][0] if result["documents"] else []
+            distances = result["distances"][0] if result["distances"] else []
+            for text, distance in zip(texts, distances):
+                score = 1 - distance
+                if score >= score_threshold:
+                    best_scores[text] = max(best_scores.get(text, score), score)
     except Exception:
         # Tolerate a not-yet-existing (or otherwise unreachable) collection:
         # fall back to no retrieved context rather than failing the whole
         # agent turn.
+        logger.exception("retrieval failed for user_id=%s", state.user_id)
         state.retrieved_chunks = []
         return state
 
-    state.retrieved_chunks = [hit.payload.get("text", "") for hit in hits]
+    merged = sorted(best_scores, key=best_scores.get, reverse=True)
+    state.retrieved_chunks = rerank(state.incoming_text, merged, openai_client, db, state.user_id)[:final_k]
     return state
 
 

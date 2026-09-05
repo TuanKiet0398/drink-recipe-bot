@@ -2,6 +2,7 @@ from io import BytesIO
 from unittest.mock import MagicMock, patch
 
 from app.db.models import AdminAuditLog, Document
+from app.ingestion import Chunk
 
 
 def test_upload_doc_requires_auth(client):
@@ -10,13 +11,11 @@ def test_upload_doc_requires_auth(client):
 
 
 def test_upload_doc_chunks_embeds_and_records_metadata(client, db_session):
-    fake_qdrant = MagicMock()
-    fake_openai = MagicMock()
-    fake_openai.embeddings.create.return_value.data = [MagicMock(embedding=[0.1])]
+    fake_chunks = [Chunk(headline="H", summary="S", original_text="Steep sencha at 70C for 60 seconds.")]
 
-    with patch("app.routers.admin_docs.get_qdrant_client", return_value=fake_qdrant), patch(
-        "app.routers.admin_docs.get_openai_client", return_value=fake_openai
-    ):
+    with patch("app.routers.admin_docs.chunk_document", return_value=fake_chunks) as mock_chunk, patch(
+        "app.routers.admin_docs.embed_and_upsert"
+    ) as mock_embed:
         response = client.post(
             "/admin/docs",
             files={"file": ("sencha_recipe.txt", BytesIO(b"Steep sencha at 70C for 60 seconds."))},
@@ -26,7 +25,12 @@ def test_upload_doc_chunks_embeds_and_records_metadata(client, db_session):
     assert response.status_code == 201
     body = response.json()
     assert body["filename"] == "sencha_recipe.txt"
+    assert body["chunk_count"] == 1
     assert db_session.query(Document).count() == 1
+    mock_chunk.assert_called_once()
+    mock_embed.assert_called_once()
+    assert mock_embed.call_args.kwargs["chunks"] == fake_chunks
+    assert mock_embed.call_args.kwargs["document_id"] == body["id"]
 
 
 def test_upload_doc_rejects_pdf_extension(client, db_session):
@@ -52,12 +56,8 @@ def test_upload_doc_rejects_oversized_file(client, db_session):
 
 
 def test_upload_doc_accepts_md_file(client, db_session):
-    fake_qdrant = MagicMock()
-    fake_openai = MagicMock()
-    fake_openai.embeddings.create.return_value.data = [MagicMock(embedding=[0.1])]
-
-    with patch("app.routers.admin_docs.get_qdrant_client", return_value=fake_qdrant), patch(
-        "app.routers.admin_docs.get_openai_client", return_value=fake_openai
+    with patch("app.routers.admin_docs.chunk_document", return_value=[Chunk(headline="H", summary="S", original_text="# Matcha notes")]), patch(
+        "app.routers.admin_docs.embed_and_upsert"
     ):
         response = client.post(
             "/admin/docs",
@@ -67,45 +67,6 @@ def test_upload_doc_accepts_md_file(client, db_session):
 
     assert response.status_code == 201
     assert db_session.query(Document).count() == 1
-
-
-def test_upload_doc_creates_qdrant_collection_when_missing(client, db_session):
-    fake_qdrant = MagicMock()
-    fake_qdrant.collection_exists.return_value = False
-    fake_openai = MagicMock()
-    fake_openai.embeddings.create.return_value.data = [MagicMock(embedding=[0.1])]
-
-    with patch("app.routers.admin_docs.get_qdrant_client", return_value=fake_qdrant), patch(
-        "app.routers.admin_docs.get_openai_client", return_value=fake_openai
-    ):
-        response = client.post(
-            "/admin/docs",
-            files={"file": ("sencha_recipe.txt", BytesIO(b"Steep sencha at 70C for 60 seconds."))},
-            auth=("admin", "admin"),
-        )
-
-    assert response.status_code == 201
-    fake_qdrant.create_collection.assert_called_once()
-
-
-def test_upload_doc_stores_document_id_in_qdrant_payload(client, db_session):
-    fake_qdrant = MagicMock()
-    fake_openai = MagicMock()
-    fake_openai.embeddings.create.return_value.data = [MagicMock(embedding=[0.1])]
-
-    with patch("app.routers.admin_docs.get_qdrant_client", return_value=fake_qdrant), patch(
-        "app.routers.admin_docs.get_openai_client", return_value=fake_openai
-    ):
-        response = client.post(
-            "/admin/docs",
-            files={"file": ("sencha_recipe.txt", BytesIO(b"Steep sencha at 70C for 60 seconds."))},
-            auth=("admin", "admin"),
-        )
-
-    doc_id = response.json()["id"]
-    upsert_kwargs = fake_qdrant.upsert.call_args.kwargs
-    points = upsert_kwargs["points"]
-    assert all(p.payload["document_id"] == doc_id for p in points)
 
 
 def test_list_docs(client, db_session):
@@ -122,17 +83,15 @@ def test_delete_doc(client, db_session):
     db_session.commit()
     db_session.refresh(doc)
 
-    fake_qdrant = MagicMock()
-    with patch("app.routers.admin_docs.get_qdrant_client", return_value=fake_qdrant):
+    fake_collection = MagicMock()
+    fake_chroma = MagicMock()
+    fake_chroma.get_or_create_collection.return_value = fake_collection
+    with patch("app.routers.admin_docs.get_chroma_client", return_value=fake_chroma):
         response = client.delete(f"/admin/docs/{doc.id}", auth=("admin", "admin"))
 
     assert response.status_code == 204
     assert db_session.query(Document).count() == 0
-    fake_qdrant.delete.assert_called_once()
-    delete_kwargs = fake_qdrant.delete.call_args.kwargs
-    condition = delete_kwargs["points_selector"].must[0]
-    assert condition.key == "document_id"
-    assert condition.match.value == doc.id
+    fake_collection.delete.assert_called_once_with(where={"document_id": doc.id})
 
 
 def test_delete_doc_with_duplicate_filename_only_deletes_its_own_document_id(client, db_session):
@@ -145,25 +104,25 @@ def test_delete_doc_with_duplicate_filename_only_deletes_its_own_document_id(cli
     db_session.refresh(doc1)
     db_session.refresh(doc2)
 
-    fake_qdrant = MagicMock()
-    with patch("app.routers.admin_docs.get_qdrant_client", return_value=fake_qdrant):
+    fake_collection = MagicMock()
+    fake_chroma = MagicMock()
+    fake_chroma.get_or_create_collection.return_value = fake_collection
+    with patch("app.routers.admin_docs.get_chroma_client", return_value=fake_chroma):
         response = client.delete(f"/admin/docs/{doc1.id}", auth=("admin", "admin"))
 
     assert response.status_code == 204
-    delete_kwargs = fake_qdrant.delete.call_args.kwargs
-    condition = delete_kwargs["points_selector"].must[0]
-    assert condition.match.value == doc1.id
-    # The surviving document with the same filename is untouched in Postgres.
+    fake_collection.delete.assert_called_once_with(where={"document_id": doc1.id})
     assert db_session.query(DocumentModel).filter_by(id=doc2.id).count() == 1
 
 
-def test_upload_doc_writes_audit_log(client, db_session):
-    fake_qdrant = MagicMock()
-    fake_openai = MagicMock()
-    fake_openai.embeddings.create.return_value.data = [MagicMock(embedding=[0.1])]
+def test_delete_doc_returns_404_when_missing(client, db_session):
+    response = client.delete("/admin/docs/999", auth=("admin", "admin"))
+    assert response.status_code == 404
 
-    with patch("app.routers.admin_docs.get_qdrant_client", return_value=fake_qdrant), patch(
-        "app.routers.admin_docs.get_openai_client", return_value=fake_openai
+
+def test_upload_doc_writes_audit_log(client, db_session):
+    with patch("app.routers.admin_docs.chunk_document", return_value=[Chunk(headline="H", summary="S", original_text="content")]), patch(
+        "app.routers.admin_docs.embed_and_upsert"
     ):
         client.post(
             "/admin/docs",

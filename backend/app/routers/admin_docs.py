@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
 
-from app.agent.clients import get_openai_client, get_qdrant_client
+from app.agent.clients import get_chroma_client, get_openai_client, get_or_create_collection
 from app.auth import log_admin_action, require_admin
 from app.db.base import get_db
 from app.db.models import Document
-from app.ingestion import chunk_text, embed_and_upsert
+from app.ingestion import chunk_document, embed_and_upsert
 
 router = APIRouter(prefix="/admin/docs")
 
@@ -32,7 +32,8 @@ async def upload_doc(
         raise HTTPException(status_code=413, detail="File exceeds the 5MB upload limit")
 
     text = raw.decode("utf-8", errors="ignore")
-    chunks = chunk_text(text)
+    openai_client = get_openai_client()
+    chunks = chunk_document(text, filename, openai_client=openai_client, db=db)
 
     doc = Document(filename=filename, chunk_count=len(chunks))
     db.add(doc)
@@ -43,8 +44,8 @@ async def upload_doc(
         chunks=chunks,
         filename=filename,
         document_id=doc.id,
-        qdrant_client=get_qdrant_client(),
-        openai_client=get_openai_client(),
+        chroma_client=get_chroma_client(),
+        openai_client=openai_client,
     )
 
     log_admin_action(db, action="upload_doc", target=filename, ip=request.client.host if request.client else "")
@@ -72,12 +73,8 @@ def delete_doc(
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    from qdrant_client.models import Filter, FieldCondition, MatchValue
-
-    get_qdrant_client().delete(
-        collection_name="matcha_knowledge",
-        points_selector=Filter(must=[FieldCondition(key="document_id", match=MatchValue(value=doc.id))]),
-    )
+    collection = get_or_create_collection(get_chroma_client(), "matcha_knowledge")
+    collection.delete(where={"document_id": doc.id})
 
     db.delete(doc)
     db.commit()
