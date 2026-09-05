@@ -9,6 +9,7 @@ import { AccessLogPage } from "./logs/AccessLogPage";
 import { AuditLogPage } from "./logs/AuditLogPage";
 import { UsagePage } from "./usage/UsagePage";
 import { WelcomePage } from "./welcome/WelcomePage";
+import { ChannelsPage } from "./channels/ChannelsPage";
 
 export function App() {
   return (
@@ -31,6 +32,7 @@ export function App() {
             <Route path="logs/access" element={<AccessLogPage />} />
             <Route path="logs/audit" element={<AuditLogPage />} />
             <Route path="usage" element={<UsagePage />} />
+            <Route path="channels" element={<ChannelsPage />} />
           </Route>
         </Routes>
       </AuthProvider>

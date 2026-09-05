@@ -31,6 +31,9 @@ export function AppShell() {
         <NavLink to="/panel/usage" className={linkClass}>
           Usage
         </NavLink>
+        <NavLink to="/panel/channels" className={linkClass}>
+          Channels
+        </NavLink>
         <button
           onClick={logout}
           className="ml-auto rounded-md px-3 py-1.5 text-sm font-medium text-foreground/60 hover:bg-muted hover:text-foreground"
