@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from app.channel_manager import channel_manager
 from app.config import get_settings
 from app.db.base import SessionLocal
-from app.routers import admin_docs, admin_logs, admin_usage, admin_users, health
+from app.routers import admin_channels, admin_docs, admin_logs, admin_usage, admin_users, health
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,7 @@ def _warn_on_unsafe_defaults() -> None:
 app = FastAPI(title="Matcha Bot Backend", lifespan=lifespan)
 
 app.include_router(health.router)
+app.include_router(admin_channels.router)
 app.include_router(admin_docs.router)
 app.include_router(admin_users.router)
 app.include_router(admin_users.login_router)
