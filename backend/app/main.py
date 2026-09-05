@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.config import get_settings
-from app.routers import admin_docs, admin_logs, admin_users, health, webhook
+from app.routers import admin_docs, admin_logs, admin_usage, admin_users, health, webhook
 
 logger = logging.getLogger(__name__)
 
@@ -29,3 +29,4 @@ app.include_router(admin_docs.router)
 app.include_router(admin_users.router)
 app.include_router(admin_users.login_router)
 app.include_router(admin_logs.router)
+app.include_router(admin_usage.router)
