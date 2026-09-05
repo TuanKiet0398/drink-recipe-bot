@@ -7,6 +7,7 @@ import { DocsPage } from "./docs/DocsPage";
 import { UsersPage } from "./users/UsersPage";
 import { AccessLogPage } from "./logs/AccessLogPage";
 import { AuditLogPage } from "./logs/AuditLogPage";
+import { UsagePage } from "./usage/UsagePage";
 import { WelcomePage } from "./welcome/WelcomePage";
 
 export function App() {
@@ -29,6 +30,7 @@ export function App() {
             <Route path="users" element={<UsersPage />} />
             <Route path="logs/access" element={<AccessLogPage />} />
             <Route path="logs/audit" element={<AuditLogPage />} />
+            <Route path="usage" element={<UsagePage />} />
           </Route>
         </Routes>
       </AuthProvider>
