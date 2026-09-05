@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -10,14 +10,33 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class User(Base):
-    __tablename__ = "users"
+class Channel(Base):
+    __tablename__ = "channels"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    telegram_user_id: Mapped[str] = mapped_column(String, unique=True, index=True)
+    key: Mapped[str] = mapped_column(String, unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String)
+    channel_type: Mapped[str] = mapped_column(String)
+    encrypted_credentials: Mapped[str] = mapped_column(String)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    users: Mapped[list["User"]] = relationship(back_populates="channel")
+
+
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (
+        Index("ix_users_channel_id_telegram_user_id", "channel_id", "telegram_user_id", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    channel_id: Mapped[int] = mapped_column(ForeignKey("channels.id"))
+    telegram_user_id: Mapped[str] = mapped_column(String)
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     blocked: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    channel: Mapped["Channel"] = relationship(back_populates="users")
     messages: Mapped[list["Message"]] = relationship(back_populates="user")
     favourites: Mapped[list["Favourite"]] = relationship(back_populates="user")
 

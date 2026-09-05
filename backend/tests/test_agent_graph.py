@@ -5,8 +5,8 @@ from app.agent.state import AgentState
 from app.db.models import User
 
 
-def test_run_agent_produces_a_reply(db_session):
-    user = User(telegram_user_id="55")
+def test_run_agent_produces_a_reply(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="55")
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)

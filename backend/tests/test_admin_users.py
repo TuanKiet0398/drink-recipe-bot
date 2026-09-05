@@ -5,8 +5,8 @@ def test_list_users_requires_auth(client):
     assert client.get("/admin/users").status_code == 401
 
 
-def test_list_users_returns_summary(client, db_session):
-    user = User(telegram_user_id="1")
+def test_list_users_returns_summary(client, db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="1")
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
@@ -23,8 +23,8 @@ def test_list_users_returns_summary(client, db_session):
     assert body[0]["blocked"] is False
 
 
-def test_block_and_unblock_user(client, db_session):
-    user = User(telegram_user_id="2")
+def test_block_and_unblock_user(client, db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="2")
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
@@ -40,8 +40,8 @@ def test_block_and_unblock_user(client, db_session):
     assert user.blocked is False
 
 
-def test_block_user_writes_audit_log(client, db_session):
-    user = User(telegram_user_id="4")
+def test_block_user_writes_audit_log(client, db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="4")
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)

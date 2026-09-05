@@ -1,8 +1,11 @@
-from app.db.models import User, Message, Favourite, Document, AdminAuditLog
+import pytest
+from sqlalchemy.exc import IntegrityError
+
+from app.db.models import AdminAuditLog, Channel, Document, Favourite, Message, User
 
 
-def test_create_user_with_related_rows(db_session):
-    user = User(telegram_user_id="123")
+def test_create_user_with_related_rows(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="123")
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
@@ -18,3 +21,28 @@ def test_create_user_with_related_rows(db_session):
     assert db_session.query(Document).count() == 1
     assert db_session.query(AdminAuditLog).count() == 1
     assert user.blocked is False
+
+
+def test_users_unique_per_channel_and_telegram_id(db_session, channel_id):
+    db_session.add(User(channel_id=channel_id, telegram_user_id="dup"))
+    db_session.commit()
+
+    other_channel = Channel(
+        key="other-channel",
+        display_name="Other",
+        channel_type="telegram",
+        encrypted_credentials="x",
+    )
+    db_session.add(other_channel)
+    db_session.commit()
+    db_session.refresh(other_channel)
+
+    # Same telegram_user_id under a *different* channel is allowed.
+    db_session.add(User(channel_id=other_channel.id, telegram_user_id="dup"))
+    db_session.commit()
+
+    # Same telegram_user_id under the *same* channel is not.
+    db_session.add(User(channel_id=channel_id, telegram_user_id="dup"))
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()

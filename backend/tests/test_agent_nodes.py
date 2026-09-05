@@ -27,8 +27,8 @@ def _fake_stream(*content_pieces, usage=None):
     return chunks
 
 
-def test_fetch_history_loads_recent_messages_and_favourites(db_session):
-    user = User(telegram_user_id="99")
+def test_fetch_history_loads_recent_messages_and_favourites(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="99")
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
@@ -46,8 +46,8 @@ def test_fetch_history_loads_recent_messages_and_favourites(db_session):
     assert result.favourites == ["hojicha"]
 
 
-def test_fetch_history_returns_last_n_messages_in_chronological_order(db_session):
-    user = User(telegram_user_id="100")
+def test_fetch_history_returns_last_n_messages_in_chronological_order(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="100")
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
@@ -301,8 +301,8 @@ def test_generate_system_prompt_forbids_answering_when_no_knowledge_matched():
     assert "do not describe how to make the drink" in system_message.lower()
 
 
-def test_extract_favourite_upserts_when_preference_detected(db_session):
-    user = User(telegram_user_id="7")
+def test_extract_favourite_upserts_when_preference_detected(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="7")
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
@@ -371,8 +371,8 @@ def test_retry_once_propagates_when_both_attempts_fail():
     assert fn.call_count == 2
 
 
-def test_extract_favourite_noop_when_no_preference(db_session):
-    user = User(telegram_user_id="8")
+def test_extract_favourite_noop_when_no_preference(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="8")
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
