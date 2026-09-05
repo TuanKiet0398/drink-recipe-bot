@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiFetch } from "../api/client";
+import { apiFetch, ApiError } from "../api/client";
 
 interface Channel {
   id: number;
@@ -17,13 +17,32 @@ const CHANNEL_TYPES: { value: string; label: string; enabled: boolean }[] = [
 
 const EMPTY_FORM = { key: "", display_name: "", channel_type: "telegram", bot_token: "" };
 
+type TestResult = { ok: true; username: string } | { ok: false; message: string };
+
+function readableError(err: unknown, fallback: string): string {
+  if (err instanceof ApiError && err.message) {
+    try {
+      const parsed = JSON.parse(err.message);
+      if (typeof parsed.detail === "string") return parsed.detail;
+    } catch {
+      return err.message;
+    }
+  }
+  return fallback;
+}
+
 export function ChannelsPage() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
+  const [formTest, setFormTest] = useState<TestResult | null>(null);
+  const [formTesting, setFormTesting] = useState(false);
+  const [rowTest, setRowTest] = useState<Record<number, TestResult>>({});
+  const [rowTesting, setRowTesting] = useState<Record<number, boolean>>({});
 
   async function loadChannels(): Promise<void> {
     try {
@@ -40,6 +59,20 @@ export function ChannelsPage() {
   useEffect(() => {
     loadChannels();
   }, []);
+
+  function openCreateForm(): void {
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+    setFormTest(null);
+    setShowForm(true);
+  }
+
+  function openEditForm(channel: Channel): void {
+    setEditingId(channel.id);
+    setForm({ key: channel.key, display_name: channel.display_name, channel_type: channel.channel_type, bot_token: "" });
+    setFormTest(null);
+    setShowForm(true);
+  }
 
   async function toggleActive(channel: Channel): Promise<void> {
     try {
@@ -63,23 +96,75 @@ export function ChannelsPage() {
     }
   }
 
-  async function createChannel(e: React.FormEvent): Promise<void> {
+  async function submitForm(e: React.FormEvent): Promise<void> {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
-      await apiFetch("/admin/channels", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
+      if (editingId === null) {
+        await apiFetch("/admin/channels", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form),
+        });
+      } else {
+        const payload: Record<string, unknown> = { display_name: form.display_name };
+        if (form.bot_token) payload.bot_token = form.bot_token;
+        await apiFetch(`/admin/channels/${editingId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
       setForm(EMPTY_FORM);
       setShowForm(false);
+      setEditingId(null);
       await loadChannels();
     } catch {
-      setError("Failed to create channel");
+      setError(editingId === null ? "Failed to create channel" : "Failed to update channel");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function testFormConnection(): Promise<void> {
+    setFormTesting(true);
+    setFormTest(null);
+    try {
+      if (form.bot_token) {
+        const result = await apiFetch<{ ok: true; username: string }>("/admin/channels/test", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ channel_type: form.channel_type, bot_token: form.bot_token }),
+        });
+        setFormTest(result);
+      } else if (editingId !== null) {
+        const result = await apiFetch<{ ok: true; username: string }>(`/admin/channels/${editingId}/test`, {
+          method: "POST",
+        });
+        setFormTest(result);
+      } else {
+        setFormTest({ ok: false, message: "Enter a bot token first" });
+      }
+    } catch (err) {
+      setFormTest({ ok: false, message: readableError(err, "Connection failed") });
+    } finally {
+      setFormTesting(false);
+    }
+  }
+
+  async function testRowConnection(channel: Channel): Promise<void> {
+    setRowTesting((prev) => ({ ...prev, [channel.id]: true }));
+    setRowTest((prev) => ({ ...prev, [channel.id]: undefined as unknown as TestResult }));
+    try {
+      const result = await apiFetch<{ ok: true; username: string }>(`/admin/channels/${channel.id}/test`, {
+        method: "POST",
+      });
+      setRowTest((prev) => ({ ...prev, [channel.id]: result }));
+    } catch (err) {
+      setRowTest((prev) => ({ ...prev, [channel.id]: { ok: false, message: readableError(err, "Connection failed") } }));
+    } finally {
+      setRowTesting((prev) => ({ ...prev, [channel.id]: false }));
     }
   }
 
@@ -91,7 +176,7 @@ export function ChannelsPage() {
           <p className="text-sm text-muted-foreground">Chat platform connections (Telegram, and more soon).</p>
         </div>
         <button
-          onClick={() => setShowForm((v) => !v)}
+          onClick={() => (showForm ? setShowForm(false) : openCreateForm())}
           className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark"
         >
           + Add Channel
@@ -105,15 +190,17 @@ export function ChannelsPage() {
       )}
 
       {showForm && (
-        <form onSubmit={createChannel} className="flex flex-col gap-3 rounded-lg border border-border bg-card p-5 shadow-card">
+        <form onSubmit={submitForm} className="flex flex-col gap-3 rounded-lg border border-border bg-card p-5 shadow-card">
+          <h2 className="text-sm font-semibold text-foreground">{editingId === null ? "New Channel" : "Edit Channel"}</h2>
           <div>
             <label className="block text-sm font-medium text-foreground">Key</label>
             <input
               required
+              disabled={editingId !== null}
               value={form.key}
               onChange={(e) => setForm({ ...form, key: e.target.value })}
               placeholder="my-telegram-bot"
-              className="mt-1 w-full rounded-md border border-border px-3 py-1.5 text-sm"
+              className="mt-1 w-full rounded-md border border-border px-3 py-1.5 text-sm disabled:bg-muted disabled:text-muted-foreground"
             />
           </div>
           <div>
@@ -130,8 +217,9 @@ export function ChannelsPage() {
             <label className="block text-sm font-medium text-foreground">Channel Type</label>
             <select
               value={form.channel_type}
+              disabled={editingId !== null}
               onChange={(e) => setForm({ ...form, channel_type: e.target.value })}
-              className="mt-1 w-full rounded-md border border-border px-3 py-1.5 text-sm"
+              className="mt-1 w-full rounded-md border border-border px-3 py-1.5 text-sm disabled:bg-muted disabled:text-muted-foreground"
             >
               {CHANNEL_TYPES.map((t) => (
                 <option key={t.value} value={t.value} disabled={!t.enabled}>
@@ -142,14 +230,29 @@ export function ChannelsPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-foreground">Bot Token</label>
-            <input
-              required
-              type="password"
-              value={form.bot_token}
-              onChange={(e) => setForm({ ...form, bot_token: e.target.value })}
-              placeholder="123456:ABC-DEF..."
-              className="mt-1 w-full rounded-md border border-border px-3 py-1.5 text-sm"
-            />
+            <div className="mt-1 flex gap-2">
+              <input
+                required={editingId === null}
+                type="password"
+                value={form.bot_token}
+                onChange={(e) => setForm({ ...form, bot_token: e.target.value })}
+                placeholder={editingId === null ? "123456:ABC-DEF..." : "Leave blank to keep current token"}
+                className="w-full rounded-md border border-border px-3 py-1.5 text-sm"
+              />
+              <button
+                type="button"
+                onClick={testFormConnection}
+                disabled={formTesting}
+                className="shrink-0 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50"
+              >
+                {formTesting ? "Testing…" : "Test"}
+              </button>
+            </div>
+            {formTest && (
+              <p className={`mt-1 text-xs ${formTest.ok ? "text-primary-dark" : "text-red-700"}`}>
+                {formTest.ok ? `✓ Connected as @${formTest.username}` : `✗ ${formTest.message}`}
+              </p>
+            )}
           </div>
           <div className="flex gap-2">
             <button
@@ -157,7 +260,7 @@ export function ChannelsPage() {
               disabled={submitting}
               className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
             >
-              Create
+              {editingId === null ? "Create" : "Save"}
             </button>
             <button
               type="button"
@@ -209,19 +312,41 @@ export function ChannelsPage() {
                       {channel.is_active ? "Active" : "Inactive"}
                     </span>
                   </td>
-                  <td className="flex gap-2">
-                    <button
-                      onClick={() => toggleActive(channel)}
-                      className="rounded px-2 py-1 text-sm font-medium text-primary hover:bg-primary-light"
-                    >
-                      {channel.is_active ? "Deactivate" : "Activate"}
-                    </button>
-                    <button
-                      onClick={() => deleteChannel(channel)}
-                      className="rounded px-2 py-1 text-sm font-medium text-red-700 hover:bg-red-50"
-                    >
-                      Delete
-                    </button>
+                  <td>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => testRowConnection(channel)}
+                        disabled={rowTesting[channel.id]}
+                        className="rounded px-2 py-1 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50"
+                      >
+                        {rowTesting[channel.id] ? "Testing…" : "Test"}
+                      </button>
+                      <button
+                        onClick={() => openEditForm(channel)}
+                        className="rounded px-2 py-1 text-sm font-medium text-primary hover:bg-primary-light"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => toggleActive(channel)}
+                        className="rounded px-2 py-1 text-sm font-medium text-primary hover:bg-primary-light"
+                      >
+                        {channel.is_active ? "Deactivate" : "Activate"}
+                      </button>
+                      <button
+                        onClick={() => deleteChannel(channel)}
+                        className="rounded px-2 py-1 text-sm font-medium text-red-700 hover:bg-red-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                    {rowTest[channel.id] && (
+                      <p className={`mt-1 text-xs ${rowTest[channel.id].ok ? "text-primary-dark" : "text-red-700"}`}>
+                        {rowTest[channel.id].ok
+                          ? `✓ Connected as @${(rowTest[channel.id] as { ok: true; username: string }).username}`
+                          : `✗ ${(rowTest[channel.id] as { ok: false; message: string }).message}`}
+                      </p>
+                    )}
                   </td>
                 </tr>
               ))
