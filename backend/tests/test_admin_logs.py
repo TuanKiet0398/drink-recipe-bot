@@ -38,3 +38,45 @@ def test_logs_respect_limit_and_offset(client, db_session):
     response = client.get("/admin/logs/audit?limit=1&offset=1", auth=("admin", "admin"))
     assert response.status_code == 200
     assert len(response.json()) == 1
+
+
+def test_delete_audit_log_entry_requires_auth(client, db_session):
+    entry = AdminAuditLog(action="login")
+    db_session.add(entry)
+    db_session.commit()
+    db_session.refresh(entry)
+
+    assert client.delete(f"/admin/logs/audit/{entry.id}").status_code == 401
+
+
+def test_delete_audit_log_entry(client, db_session):
+    entry = AdminAuditLog(action="login")
+    db_session.add(entry)
+    db_session.commit()
+    db_session.refresh(entry)
+
+    response = client.delete(f"/admin/logs/audit/{entry.id}", auth=("admin", "admin"))
+    assert response.status_code == 204
+    # Not asserting on id=entry.id: SQLite reuses a deleted rowid for the
+    # next insert once the table is empty, and the delete's own audit
+    # entry (logged right after) would otherwise collide with it.
+    assert db_session.query(AdminAuditLog).filter_by(action="login").count() == 0
+
+
+def test_delete_audit_log_entry_returns_404_when_missing(client, db_session):
+    response = client.delete("/admin/logs/audit/999", auth=("admin", "admin"))
+    assert response.status_code == 404
+
+
+def test_clear_audit_log(client, db_session):
+    db_session.add(AdminAuditLog(action="login"))
+    db_session.add(AdminAuditLog(action="logout"))
+    db_session.commit()
+
+    response = client.delete("/admin/logs/audit", auth=("admin", "admin"))
+    assert response.status_code == 204
+    # The clear action's own audit entry is written after the delete, so
+    # exactly one row (that entry) should remain.
+    remaining = db_session.query(AdminAuditLog).all()
+    assert len(remaining) == 1
+    assert remaining[0].action == "clear_audit_log"

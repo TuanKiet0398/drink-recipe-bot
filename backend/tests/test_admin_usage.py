@@ -1,4 +1,4 @@
-from app.db.models import TokenUsage
+from app.db.models import AdminAuditLog, TokenUsage
 
 
 def test_usage_list_requires_auth(client):
@@ -70,3 +70,40 @@ def test_usage_summary_with_no_rows(client, db_session):
     assert response.status_code == 200
     body = response.json()
     assert body == {"total_calls": 0, "total_tokens": 0, "estimated_cost_usd": 0.0, "by_model": []}
+
+
+def test_delete_usage_entry_requires_auth(client, db_session):
+    entry = TokenUsage(call_type="generate", model="gpt-4o-mini", prompt_tokens=1, total_tokens=1)
+    db_session.add(entry)
+    db_session.commit()
+    db_session.refresh(entry)
+
+    assert client.delete(f"/admin/usage/{entry.id}").status_code == 401
+
+
+def test_delete_usage_entry(client, db_session):
+    entry = TokenUsage(call_type="generate", model="gpt-4o-mini", prompt_tokens=1, total_tokens=1)
+    db_session.add(entry)
+    db_session.commit()
+    db_session.refresh(entry)
+
+    response = client.delete(f"/admin/usage/{entry.id}", auth=("admin", "admin"))
+    assert response.status_code == 204
+    assert db_session.query(TokenUsage).filter_by(id=entry.id).count() == 0
+
+
+def test_delete_usage_entry_returns_404_when_missing(client, db_session):
+    response = client.delete("/admin/usage/999", auth=("admin", "admin"))
+    assert response.status_code == 404
+
+
+def test_clear_usage(client, db_session):
+    db_session.add(TokenUsage(call_type="generate", model="gpt-4o-mini", prompt_tokens=1, total_tokens=1))
+    db_session.add(TokenUsage(call_type="embedding", model="text-embedding-3-small", prompt_tokens=1, total_tokens=1))
+    db_session.commit()
+
+    response = client.delete("/admin/usage", auth=("admin", "admin"))
+    assert response.status_code == 204
+    assert db_session.query(TokenUsage).count() == 0
+    logs = db_session.query(AdminAuditLog).filter_by(action="clear_usage").all()
+    assert len(logs) == 1

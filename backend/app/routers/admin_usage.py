@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.auth import require_admin
+from app.auth import log_admin_action, require_admin
 from app.db.base import get_db
 from app.db.models import TokenUsage
 
@@ -94,3 +94,34 @@ def usage_summary(
         "estimated_cost_usd": round(estimated_cost_usd, 4),
         "by_model": by_model,
     }
+
+
+@router.delete("/{entry_id}", status_code=204)
+def delete_usage_entry(
+    entry_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin_user: str = Depends(require_admin),
+):
+    entry = db.query(TokenUsage).filter_by(id=entry_id).one_or_none()
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Usage entry not found")
+
+    db.delete(entry)
+    db.commit()
+
+    log_admin_action(
+        db, action="delete_usage", target=str(entry_id), ip=request.client.host if request.client else ""
+    )
+
+
+@router.delete("", status_code=204)
+def clear_usage(
+    request: Request,
+    db: Session = Depends(get_db),
+    admin_user: str = Depends(require_admin),
+):
+    db.query(TokenUsage).delete()
+    db.commit()
+
+    log_admin_action(db, action="clear_usage", ip=request.client.host if request.client else "")
