@@ -1,3 +1,8 @@
 # goclaw/ is a separate, unrelated git repository that happens to sit
 # inside this project's working directory — never part of this repo.
 goclaw/
+
+# Secrets — never commit, regardless of which directory they're in.
+.env
+.env.*
+!.env.example
