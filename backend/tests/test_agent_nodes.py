@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.agent import nodes
 from app.agent.nodes import fetch_history, retrieve, rerank, rewrite_query, generate, extract_favourite
 from app.agent.state import AgentState
 from app.db.models import User, Message, Favourite
@@ -387,3 +388,27 @@ def test_extract_favourite_noop_when_no_preference(db_session, channel_id):
     extract_favourite(state, db=db_session, openai_client=fake_openai)
 
     assert db_session.query(Favourite).filter_by(user_id=user.id).count() == 0
+
+
+def test_build_system_prompt_includes_soul_content_when_file_exists(tmp_path, monkeypatch):
+    soul_path = tmp_path / "SOUL.md"
+    soul_path.write_text("You genuinely like tea and it shows.", encoding="utf-8")
+    monkeypatch.setattr(nodes, "SOUL_PATH", soul_path)
+    nodes._load_soul.cache_clear()
+
+    state = AgentState(user_id=1, chat_id="1", incoming_text="hi")
+    prompt = nodes._build_system_prompt(state)
+
+    assert "You genuinely like tea and it shows." in prompt
+    nodes._load_soul.cache_clear()
+
+
+def test_build_system_prompt_falls_back_when_soul_file_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(nodes, "SOUL_PATH", tmp_path / "does-not-exist.md")
+    nodes._load_soul.cache_clear()
+
+    state = AgentState(user_id=1, chat_id="1", incoming_text="hi")
+    prompt = nodes._build_system_prompt(state)
+
+    assert "premium matcha" in prompt
+    nodes._load_soul.cache_clear()

@@ -1,5 +1,7 @@
 import json
 import logging
+from functools import lru_cache
+from pathlib import Path
 from typing import Callable
 
 from sqlalchemy import select
@@ -16,6 +18,18 @@ logger = logging.getLogger(__name__)
 EMBEDDING_MODEL = "text-embedding-3-small"
 REWRITE_MODEL = "gpt-4o-mini"
 RERANK_MODEL = "gpt-4o-mini"
+
+# The bot's personality/tone — see SOUL.md for the full description. Read
+# once and cached; editing it requires a server restart to take effect.
+SOUL_PATH = Path(__file__).resolve().parent.parent.parent / "SOUL.md"
+
+
+@lru_cache
+def _load_soul() -> str:
+    try:
+        return SOUL_PATH.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return ""
 
 
 def fetch_history(state: AgentState, db: Session, limit: int = 10) -> AgentState:
@@ -158,7 +172,10 @@ def retrieve(
 def _build_system_prompt(state: AgentState) -> str:
     favourites = ", ".join(state.favourites) or "none known yet"
     context = "\n".join(f"- {chunk}" for chunk in state.retrieved_chunks) or "(no matching knowledge found)"
+    soul = _load_soul()
+    soul_section = f"{soul}\n\n" if soul else ""
     return (
+        f"{soul_section}"
         "You are a premium matcha and tea ceremony consultant for this specific shop. "
         f"The user's known favourite drinks: {favourites}. "
         f"Relevant knowledge (this is everything the shop actually offers — only recommend from this):\n{context}\n"
