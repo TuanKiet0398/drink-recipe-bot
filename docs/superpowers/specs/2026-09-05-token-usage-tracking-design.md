@@ -62,15 +62,26 @@ response is received:
 - `extract_favourite()`: after its chat completion, `call_type="extract_favourite"`,
   `model=model` (same pattern as `generate`)
 
-Each of these three functions already receives `db: Session` as a parameter except
-`retrieve()`, which currently does not — `retrieve()`'s signature gains a `db: Session`
-parameter. Its only caller is `app/agent/graph.py`'s `build_graph()`, which already has
-`db` in scope (it's one of `build_graph`'s own parameters, used identically in the
-`fetch_history` node's lambda); the `retrieve` node's registration line
-(`graph.add_node("retrieve", lambda s: retrieve(s, qdrant_client, openai_client))`)
-simply gains `db` as an argument. No change is needed in `webhook.py` or anywhere else
-upstream. This is the only change to an existing function signature in this spec —
-everywhere else is additive.
+`extract_favourite()` already receives `db: Session`. Neither `retrieve()` nor
+`generate()` does today — both gain a `db: Session` parameter. Both are wired in
+`app/agent/graph.py`'s `build_graph(db, qdrant_client, openai_client)`, which already has
+`db` in scope as its own parameter; the two node registration lines
+(`graph.add_node("retrieve", lambda s: retrieve(s, qdrant_client, openai_client))` and
+`graph.add_node("generate", lambda s: generate(s, openai_client))`) each simply gain `db`
+as an argument. No change is needed in `webhook.py` or anywhere else upstream — these are
+the only two changes to an existing function signature in this spec; everywhere else is
+additive.
+
+`log_token_usage` swallows its own failures internally (try/except around the row
+construction and `db.add`/`db.commit`, calling `db.rollback()` in the except branch before
+returning) rather than relying on each call site to wrap it. This matters beyond tidiness:
+a `usage` object that isn't a real OpenAI SDK `Usage` (e.g. a bare `unittest.mock.MagicMock`
+in a test that doesn't configure `.usage`, which yields `MagicMock` sub-objects instead of
+ints) would otherwise raise inside `db.commit()` — and an uncaught error there leaves the
+SQLAlchemy session in a failed-transaction state that breaks every later statement in the
+same request/test until rolled back. Handling the rollback inside `log_token_usage` keeps
+the three call sites a single plain call each: `log_token_usage(db, state.user_id,
+"generate", model, response.usage)`, no `try/except` boilerplate at the call site.
 
 Logging failures (e.g. a DB error while writing the usage row) must never break the
 user-facing agent turn. `log_token_usage` calls are wrapped in a `try/except` at each
