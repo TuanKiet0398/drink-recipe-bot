@@ -72,10 +72,13 @@ def _build_system_prompt(state: AgentState) -> str:
     favourites = ", ".join(state.favourites) or "none known yet"
     context = "\n".join(f"- {chunk}" for chunk in state.retrieved_chunks) or "(no matching knowledge found)"
     return (
-        "You are a premium matcha and tea ceremony consultant. "
+        "You are a premium matcha and tea ceremony consultant for this specific shop. "
         f"The user's known favourite drinks: {favourites}. "
-        f"Relevant knowledge:\n{context}\n"
-        "Answer helpfully and recommend products/brewing methods when relevant."
+        f"Relevant knowledge (this is everything the shop actually offers — only recommend from this):\n{context}\n"
+        "Only recommend or describe drinks/recipes that appear in the knowledge above. "
+        "If the user asks about something not covered there, say the shop doesn't currently "
+        "have that, and suggest one of the drinks from the knowledge above instead. "
+        "Never invent a drink, ingredient, or brewing method that isn't in the knowledge."
     )
 
 

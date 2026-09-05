@@ -148,6 +148,26 @@ def test_generate_calls_openai_with_context_and_sets_reply(db_session):
     assert result.reply == "Try our ceremonial grade matcha!"
 
 
+def test_generate_system_prompt_restricts_recommendations_to_retrieved_knowledge():
+    state = AgentState(
+        user_id=1,
+        chat_id="1",
+        incoming_text="do you have bubble tea?",
+        retrieved_chunks=["Matcha latte: whisk 2g matcha with steamed milk."],
+    )
+
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content="We don't have that, but try our matcha latte!"))
+    ]
+
+    generate(state, MagicMock(), openai_client=fake_openai)
+
+    system_message = fake_openai.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+    assert "only recommend" in system_message.lower()
+    assert "never invent" in system_message.lower()
+
+
 def test_extract_favourite_upserts_when_preference_detected(db_session):
     user = User(telegram_user_id="7")
     db_session.add(user)
