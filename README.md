@@ -4,8 +4,8 @@ A drink-recipe (tea, matcha, etc.) consulting chatbot for a shop, served over Te
 
 ## Key features
 
-- **RAG chatbot on Telegram**: answers customers via OpenAI, grounding responses on uploaded recipe documents retrieved from a Chroma vector DB — never invents a drink/ingredient outside those documents (`backend/SOUL.md` defines the bot's personality and tone).
-- **Multi-channel**: manages several Telegram bot connections at once (`ChannelManager`), each channel with its own bot token, encrypted with AES-GCM (`app/crypto.py`) before being stored.
+- **RAG chatbot on Telegram**: a LangGraph agent (`fetch_history → retrieve → generate`, `app/agent/graph.py`) answers customers via OpenAI, grounding responses on uploaded recipe documents retrieved from a Chroma vector DB — never invents a drink/ingredient outside those documents (`backend/SOUL.md` defines the bot's personality and tone). Replies stream token-by-token as progressive edits to a "thinking..." placeholder message (`app/routers/webhook.py`), and a favourite-drink is inferred and saved in the background after each reply (`extract_favourite`).
+- **Multi-channel, poll-based**: `ChannelManager` reconciles one long-polling task per active Telegram channel (`app/channel_manager.py`, `app/telegram_poller.py`) — no inbound HTTP webhook is exposed. Each channel's bot token is encrypted with AES-GCM (`app/crypto.py`) before being stored.
 - **React admin SPA**:
   - Channels: create/edit/delete, test connection (checks the token still works), force-delete a channel that still has users attached (with a type-to-confirm modal).
   - Docs: upload/list/delete the recipe documents that back the bot's knowledge base.
@@ -35,17 +35,23 @@ System diagram: [`docs/architecture-diagram.html`](docs/architecture-diagram.htm
 ```
 backend/
   app/
-    agent/          # LangGraph nodes: fetch_history, retrieve, generate, extract_favourite
-    routers/        # admin_channels, admin_docs, admin_logs, admin_usage, admin_users, health, webhook
-    db/              # models + session
-    channel_manager.py   # manages the poller for each Telegram channel
-    crypto.py             # token/credential encryption (AES-GCM)
-    config.py             # settings (env)
+    agent/                 # LangGraph nodes: fetch_history, retrieve, generate, extract_favourite
+    routers/                # HTTP routers: admin_channels, admin_docs, admin_logs, admin_usage, admin_users, health
+    routers/webhook.py       # NOT an HTTP route — message-processing pipeline called by telegram_poller.py
+    db/                      # SQLAlchemy models (Channel, User, Message, Favourite, Document, AdminAuditLog, TokenUsage) + session
+    channel_manager.py    # spawns/reconciles one long-poll task per active Telegram channel
+    telegram_poller.py    # per-channel long-poll loop (get_updates)
+    telegram_client.py    # Telegram Bot API HTTP calls
+    ingestion.py           # chunk + embed uploaded docs into Chroma
+    crypto.py              # token/credential encryption (AES-GCM)
+    retry.py                # single-retry wrapper used around LLM/embedding calls
+    token_usage.py         # persists per-call token counts
+    config.py               # settings (env)
   SOUL.md            # bot personality / tone
   migrations/        # Alembic
 frontend/
-  src/               # React SPA (Channels, Docs, Users, Access Log, Audit Log, Usage pages)
-docs/                # design specs & implementation plans
+  src/               # React SPA: api, auth, channels, docs, users, logs, usage, welcome, layout
+docs/                # architecture diagram + design specs/plans (see below)
 sample-recipes/      # sample recipes for testing ingestion/RAG
 docker-compose.yml
 ```
@@ -80,6 +86,41 @@ npm install
 npm run dev
 ```
 
+## Admin API
+
+All routes below require HTTP Basic Auth (`app/auth.py`, `require_admin`), except `/health` and `/admin/login`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/admin/login` | Validate admin credentials (frontend login) |
+| GET/POST | `/admin/channels` | List / create a Telegram channel |
+| POST | `/admin/channels/test` | Test a bot token before saving |
+| PATCH | `/admin/channels/{id}` | Update a channel |
+| POST | `/admin/channels/{id}/test` | Test a saved channel's token |
+| DELETE | `/admin/channels/{id}` | Delete a channel (`?force=true` if it still has users) |
+| GET/POST | `/admin/docs` | List / upload a knowledge-base document (chunked + embedded into Chroma) |
+| DELETE | `/admin/docs/{id}` | Delete a document and its chunks |
+| GET | `/admin/users` | List users (message count, favourites) |
+| POST | `/admin/users/{id}/block` \| `/unblock` | Block / unblock a user |
+| GET | `/admin/logs/access` | Paginated chat message log |
+| GET | `/admin/logs/audit` | Paginated admin action log (filter by action / search) |
+| GET | `/admin/logs/audit/actions` | Distinct audit action names |
+| DELETE | `/admin/logs/audit/{id}` \| `/admin/logs/audit` | Delete one / clear all audit entries |
+| GET | `/admin/usage` \| `/admin/usage/summary` | Token usage rows / per-model cost totals |
+| DELETE | `/admin/usage/{id}` \| `/admin/usage` | Delete one / clear all usage rows |
+| GET | `/health` | Liveness check (no auth) |
+
+**Data model** (`app/db/models.py`): `Channel` → `User` → `Message` / `Favourite`, plus standalone `Document`, `AdminAuditLog`, `TokenUsage`.
+
+**Frontend routes** (`frontend/src/App.tsx`): `/` (public landing), `/login`, and `/panel/*` (auth-gated): `usage` (default), `docs`, `users`, `logs/access`, `logs/audit`, `channels`.
+
+## CI/CD
+
+GitHub Actions (`.github/workflows/deploy.yml`) runs on every push to `main`:
+
+1. **test** — installs backend deps, runs `pytest` (with dummy `OPENAI_API_KEY`/`ENCRYPTION_KEY`), then installs frontend deps and runs `npm run build` (typecheck + build).
+2. **build-and-push** (needs `test` to pass) — builds the `backend` and `frontend` Docker images and pushes both to GHCR (`ghcr.io/<repo>-backend`, `ghcr.io/<repo>-frontend`), tagged `latest` and the commit SHA.
+
 ## Environment variables (backend/.env)
 
 | Variable | Purpose |
@@ -104,4 +145,4 @@ cd frontend && npm run test
 
 ## Design docs
 
-See the `docs/` directory — it holds design specs and implementation plans for each major feature (RAG, multi-channel admin, token usage tracking, etc.).
+`docs/architecture-diagram.{html,svg}` — the system diagram above. Local implementation plans/specs (`docs/superpowers/`) are kept on disk for reference but are gitignored, not part of the repo history.

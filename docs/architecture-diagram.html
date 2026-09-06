@@ -78,9 +78,9 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-label
 <main class="diagram">
   <h1 class="diagram__title">Matcha Bot — system architecture</h1>
   <p class="diagram__subtitle">flat-minimal · one frame · Telegram RAG chatbot + admin dashboard</p>
-  <svg class="diagram__canvas" viewBox="0 0 1440 640" role="img" aria-labelledby="t d">
+  <svg class="diagram__canvas" viewBox="0 0 1440 900" role="img" aria-labelledby="t d">
     <title id="t">Matcha Bot system architecture</title>
-    <desc id="d">A Telegram user messages the bot; Telegram relays the update to the FastAPI backend's per-channel poller and LangGraph agent. The agent retrieves grounding recipes from the Chroma vector DB and calls OpenAI to generate a reply, while reading/writing channels, users and logs in SQLite/PostgreSQL. An admin uses the React SPA to manage channels, docs, users and logs over the same backend's REST API.</desc>
+    <desc id="d">A Telegram user messages the bot; Telegram relays the update to the FastAPI backend's per-channel poller and LangGraph agent. The agent retrieves grounding recipes from the Chroma vector DB and calls OpenAI to generate a reply, while reading/writing channels, users and logs in SQLite/PostgreSQL. An admin uses the React SPA to manage channels, docs, users and logs over the same backend's REST API. Separately, a push to main triggers the GitHub Actions CI/CD pipeline, which tests, builds and pushes backend/frontend images to GHCR; the backend is redeployed by pulling the new image.</desc>
     <defs>
       <marker id="arrow" class="marker" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse" markerUnits="strokeWidth"><path d="M 0 0 L 10 5 L 0 10 z"/></marker>
       <marker id="arrow-open" class="marker marker--open" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="strokeWidth"><path d="M 0 0 L 10 5 L 0 10" fill="none"/></marker>
@@ -104,12 +104,23 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-label
       <path class="edge" d="M 200 500 H 720 V 350"><title>Admin SPA calls the backend's REST admin API</title></path>
       <text class="edge__label" x="460" y="488">REST admin API</text>
 
+      <path class="edge" d="M 200 720 H 300"><title>A push to main triggers the pipeline</title></path>
+      <text class="edge__label" x="250" y="708">push to main</text>
+
+      <path class="edge" d="M 460 720 H 548"><title>CI builds and pushes images to GHCR</title></path>
+      <text class="edge__label" x="504" y="708">docker push</text>
+
+      <path class="edge edge--async" d="M 640 682 V 350"><title>Backend is redeployed by pulling the new image</title></path>
+      <text class="edge__label" x="676" y="520">docker pull · on deploy</text>
+
       <g class="packet anim-packet-travel" style="offset-path:path('M 200 120 H 328')" aria-hidden="true"><circle r="5" fill="var(--stroke)"/></g>
       <g class="packet anim-packet-travel" style="offset-path:path('M 385 158 V 310 H 600');animation-delay:-300ms" aria-hidden="true"><circle r="5" fill="var(--stroke)"/></g>
       <g class="packet anim-packet-travel" style="offset-path:path('M 680 270 V 150 H 888');animation-delay:-600ms" aria-hidden="true"><circle r="5" fill="var(--stroke)"/></g>
       <g class="packet anim-packet-travel" style="offset-path:path('M 680 350 V 472 H 928');animation-delay:-900ms" aria-hidden="true"><circle r="5" fill="var(--stroke)"/></g>
       <g class="packet anim-packet-travel" style="offset-path:path('M 760 310 H 888');animation-delay:-1100ms" aria-hidden="true"><circle r="5" fill="var(--stroke)"/></g>
       <g class="packet anim-packet-travel" style="offset-path:path('M 200 500 H 720 V 350')" aria-hidden="true"><circle r="5" fill="var(--stroke)"/></g>
+      <g class="packet anim-packet-travel" style="offset-path:path('M 200 720 H 300')" aria-hidden="true"><circle r="5" fill="var(--stroke)"/></g>
+      <g class="packet anim-packet-travel" style="offset-path:path('M 460 720 H 548');animation-delay:-300ms" aria-hidden="true"><circle r="5" fill="var(--stroke)"/></g>
     </g>
     <g class="layer-nodes">
       <g class="node" data-role="client" transform="translate(40,80)">
@@ -177,6 +188,36 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-label
         </g>
         <text class="node__label" x="80" y="48">Admin (React SPA)</text>
         <text class="node__sub" x="80" y="66">channels · docs · users · logs</text>
+      </g>
+
+      <g class="node" data-role="client" transform="translate(40,680)">
+        <title>Git push (main)</title>
+        <g class="node__body">
+          <rect class="node__shape" x="0" y="0" width="160" height="80" rx="8"/>
+          <path class="node__detail" d="M 0 20 H 160"/>
+          <circle class="node__icon" cx="14" cy="10" r="3"/><circle class="node__icon" cx="26" cy="10" r="3"/><circle class="node__icon" cx="38" cy="10" r="3"/>
+        </g>
+        <text class="node__label" x="80" y="48">Git push (main)</text>
+        <text class="node__sub" x="80" y="66">developer / merge</text>
+      </g>
+
+      <g class="node" data-role="service" transform="translate(300,680)">
+        <title>GitHub Actions CI/CD</title>
+        <g class="node__body">
+          <rect class="node__shape" x="0" y="0" width="160" height="80" rx="8"/>
+        </g>
+        <text class="node__label" x="80" y="36">GitHub Actions</text>
+        <text class="node__sub" x="80" y="56">test → build → push</text>
+      </g>
+
+      <g class="node" data-role="data" transform="translate(560,680)">
+        <title>GHCR</title>
+        <g class="node__body">
+          <path class="node__shape" d="M 0 14 A 80 14 0 0 1 160 14 V 66 A 80 14 0 0 1 0 66 Z"/>
+          <path class="node__detail" d="M 0 14 A 80 14 0 0 0 160 14"/>
+        </g>
+        <text class="node__label" x="80" y="46">GHCR</text>
+        <text class="node__sub" x="80" y="64">backend + frontend images</text>
       </g>
     </g>
   </svg>
