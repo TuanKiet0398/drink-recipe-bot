@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 700" role="img" aria-labelledby="t d" font-family="Inter, ui-sans-serif, system-ui, sans-serif">
+  <title id="t">Matcha Bot system architecture</title>
+  <desc id="d">A Telegram user messages the bot; Telegram relays the update to the FastAPI backend's per-channel poller and LangGraph agent. The agent retrieves grounding recipes from the Chroma vector DB and calls OpenAI to generate a reply, while reading/writing channels, users and logs in SQLite/PostgreSQL. An admin uses the React SPA to manage channels, docs, users and logs over the same backend's REST API.</desc>
+  <defs>
+    <style>
+      .bg{fill:#f8fafc}
+      [data-role="client"]  {--fill:#dbeafe; --line:#2563eb; --on:#1e40af}
+      [data-role="service"] {--fill:#ffedd5; --line:#ea580c; --on:#9a3412}
+      [data-role="data"]    {--fill:#dcfce7; --line:#16a34a; --on:#166534}
+      [data-role="external"]{--fill:#f3f4f6; --line:#4b5563; --on:#1f2937}
+      .node__shape{fill:var(--fill);stroke:var(--line);stroke-width:1.5px}
+      .node--primary .node__shape{stroke-width:2.1px}
+      .node__detail{fill:none;stroke:var(--line);stroke-width:1;opacity:.65}
+      .node__icon{fill:var(--line)}
+      .node__label{fill:var(--on);font:600 16px Inter,sans-serif;text-anchor:middle}
+      .node__sub{fill:var(--on);font:400 13px Inter,sans-serif;text-anchor:middle;opacity:.85}
+      .edge{fill:none;stroke:#475569;stroke-width:1.5px;stroke-linecap:round;stroke-linejoin:miter;marker-end:url(#arrow)}
+      .edge--primary{stroke-width:2.0px}
+      .edge__label{fill:#475569;font:500 13px Inter,sans-serif;text-anchor:middle}
+      .marker{fill:#475569;stroke:none}
+      .legend text{fill:#475569;font:400 13px Inter,sans-serif}
+      .diagram__title{fill:#1e293b;font:600 22px Inter,sans-serif}
+      .diagram__subtitle{fill:#475569;font:400 14px Inter,sans-serif}
+      .anim-dash-flow{stroke-dasharray:8 6;animation:dash-flow 1200ms linear infinite}
+      @keyframes dash-flow{to{stroke-dashoffset:-42}}
+      .packet{offset-distance:0%;offset-rotate:0deg}
+      .anim-packet-travel{animation:pkt 1200ms ease-in-out infinite}
+      @keyframes pkt{0%{offset-distance:0%;opacity:0}8%{opacity:1}70%{offset-distance:100%;opacity:1}80%,100%{offset-distance:100%;opacity:0}}
+      .anim-pulse-glow{animation:pulse-glow 1600ms ease-in-out infinite}
+      @keyframes pulse-glow{0%,100%{opacity:1}50%{opacity:.72}}
+      @media (prefers-reduced-motion: reduce){
+        .anim-dash-flow{animation:none !important;stroke-dasharray:none !important}
+        .anim-packet-travel{animation:none !important;offset-distance:100% !important;opacity:1 !important}
+        .anim-pulse-glow{animation:none !important;opacity:1 !important}
+      }
+    </style>
+    <marker id="arrow" class="marker" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse" markerUnits="strokeWidth"><path d="M 0 0 L 10 5 L 0 10 z"/></marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1440" height="700"/>
+  <text class="diagram__title" x="24" y="34">Matcha Bot — system architecture</text>
+  <text class="diagram__subtitle" x="24" y="56">flat-minimal · one frame · Telegram RAG chatbot + admin dashboard</text>
+
+  <g transform="translate(0,64)">
+    <g class="layer-edges">
+      <path class="edge edge--primary anim-dash-flow" d="M 200 120 H 328"><title>Telegram user sends a message</title></path>
+      <text class="edge__label" x="264" y="108">sendMessage</text>
+
+      <path class="edge edge--primary anim-dash-flow" d="M 385 158 V 310 H 600"><title>Telegram relays the update to the backend poller</title></path>
+      <text class="edge__label" x="470" y="298">long-poll update</text>
+
+      <path class="edge" d="M 680 270 V 150 H 888"><title>Agent retrieves grounding recipes from Chroma</title></path>
+      <text class="edge__label" x="784" y="138">retrieve(query)</text>
+
+      <path class="edge edge--primary anim-dash-flow" d="M 680 350 V 472 H 928"><title>Agent calls OpenAI to generate a reply</title></path>
+      <text class="edge__label" x="804" y="460">generate(reply)</text>
+
+      <path class="edge" d="M 760 310 H 888"><title>Backend reads/writes channels, users, history, logs</title></path>
+      <text class="edge__label" x="824" y="298">read / write</text>
+
+      <path class="edge" d="M 200 500 H 720 V 350"><title>Admin SPA calls the backend's REST admin API</title></path>
+      <text class="edge__label" x="460" y="488">REST admin API</text>
+
+      <g class="packet anim-packet-travel" style="offset-path:path('M 200 120 H 328')" aria-hidden="true"><circle r="5" fill="#475569"/></g>
+      <g class="packet anim-packet-travel" style="offset-path:path('M 385 158 V 310 H 600');animation-delay:-300ms" aria-hidden="true"><circle r="5" fill="#475569"/></g>
+      <g class="packet anim-packet-travel" style="offset-path:path('M 680 270 V 150 H 888');animation-delay:-600ms" aria-hidden="true"><circle r="5" fill="#475569"/></g>
+      <g class="packet anim-packet-travel" style="offset-path:path('M 680 350 V 472 H 928');animation-delay:-900ms" aria-hidden="true"><circle r="5" fill="#475569"/></g>
+      <g class="packet anim-packet-travel" style="offset-path:path('M 760 310 H 888');animation-delay:-1100ms" aria-hidden="true"><circle r="5" fill="#475569"/></g>
+      <g class="packet anim-packet-travel" style="offset-path:path('M 200 500 H 720 V 350')" aria-hidden="true"><circle r="5" fill="#475569"/></g>
+    </g>
+
+    <g class="layer-nodes">
+      <g class="node" data-role="client" transform="translate(40,80)">
+        <title>Telegram User</title>
+        <g class="node__body">
+          <rect class="node__shape" x="0" y="0" width="160" height="80" rx="8"/>
+          <path class="node__detail" d="M 0 20 H 160"/>
+          <circle class="node__icon" cx="14" cy="10" r="3"/><circle class="node__icon" cx="26" cy="10" r="3"/><circle class="node__icon" cx="38" cy="10" r="3"/>
+        </g>
+        <text class="node__label" x="80" y="48">Telegram User</text>
+        <text class="node__sub" x="80" y="66">end customer</text>
+      </g>
+
+      <g class="node" data-role="external" transform="translate(300,80)">
+        <title>Telegram Bot API</title>
+        <g class="node__body">
+          <path class="node__shape" d="M 40 66 A 22 22 0 0 1 42 24 A 28 28 0 0 1 94 18 A 24 24 0 0 1 130 34 A 18 18 0 0 1 126 66 Z"/>
+        </g>
+        <text class="node__label" x="83" y="46">Telegram Bot API</text>
+        <text class="node__sub" x="83" y="62">per-channel bots</text>
+      </g>
+
+      <g class="node node--primary" data-role="service" transform="translate(600,270)">
+        <title>FastAPI + LangGraph Agent</title>
+        <g class="node__body anim-pulse-glow"><rect class="node__shape" x="0" y="0" width="160" height="80" rx="8"/></g>
+        <text class="node__label" x="80" y="36">FastAPI Backend</text>
+        <text class="node__sub" x="80" y="56">poller · LangGraph agent</text>
+      </g>
+
+      <g class="node" data-role="data" transform="translate(900,110)">
+        <title>Chroma Vector DB</title>
+        <g class="node__body">
+          <path class="node__shape" d="M 0 14 A 80 14 0 0 1 160 14 V 66 A 80 14 0 0 1 0 66 Z"/>
+          <path class="node__detail" d="M 0 14 A 80 14 0 0 0 160 14"/>
+        </g>
+        <text class="node__label" x="80" y="46">Chroma Vector DB</text>
+        <text class="node__sub" x="80" y="64">recipe embeddings</text>
+      </g>
+
+      <g class="node" data-role="data" transform="translate(900,270)">
+        <title>SQLite / PostgreSQL</title>
+        <g class="node__body">
+          <path class="node__shape" d="M 0 14 A 80 14 0 0 1 160 14 V 66 A 80 14 0 0 1 0 66 Z"/>
+          <path class="node__detail" d="M 0 14 A 80 14 0 0 0 160 14"/>
+        </g>
+        <text class="node__label" x="80" y="46">SQLite / PostgreSQL</text>
+        <text class="node__sub" x="80" y="64">channels · users · logs</text>
+      </g>
+
+      <g class="node" data-role="external" transform="translate(900,430)">
+        <title>OpenAI API</title>
+        <g class="node__body">
+          <path class="node__shape" d="M 40 66 A 22 22 0 0 1 42 24 A 28 28 0 0 1 94 18 A 24 24 0 0 1 130 34 A 18 18 0 0 1 126 66 Z"/>
+        </g>
+        <text class="node__label" x="83" y="46">OpenAI API</text>
+        <text class="node__sub" x="83" y="62">chat completions</text>
+      </g>
+
+      <g class="node" data-role="client" transform="translate(40,460)">
+        <title>Admin (React SPA)</title>
+        <g class="node__body">
+          <rect class="node__shape" x="0" y="0" width="160" height="80" rx="8"/>
+          <path class="node__detail" d="M 0 20 H 160"/>
+          <circle class="node__icon" cx="14" cy="10" r="3"/><circle class="node__icon" cx="26" cy="10" r="3"/><circle class="node__icon" cx="38" cy="10" r="3"/>
+        </g>
+        <text class="node__label" x="80" y="48">Admin (React SPA)</text>
+        <text class="node__sub" x="80" y="66">channels · docs · users · logs</text>
+      </g>
+    </g>
+  </g>
+
+  <g class="legend" transform="translate(24,676)">
+    <rect x="0" y="-12" width="14" height="14" rx="3" fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
+    <text x="20" y="0">client</text>
+    <rect x="90" y="-12" width="14" height="14" rx="3" fill="#ffedd5" stroke="#ea580c" stroke-width="2"/>
+    <text x="110" y="0">service</text>
+    <rect x="190" y="-12" width="14" height="14" rx="3" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+    <text x="210" y="0">store</text>
+    <rect x="280" y="-12" width="14" height="14" rx="3" fill="#f3f4f6" stroke="#4b5563" stroke-width="2"/>
+    <text x="300" y="0">external</text>
+  </g>
+</svg>

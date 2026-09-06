@@ -2,6 +2,8 @@
 # inside this project's working directory — never part of this repo.
 goclaw/
 
+docs/superpowers/
+
 # Secrets — never commit, regardless of which directory they're in.
 .env
 .env.*

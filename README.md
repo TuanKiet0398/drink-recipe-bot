@@ -16,6 +16,10 @@ A drink-recipe (tea, matcha, etc.) consulting chatbot for a shop, served over Te
 
 ## Architecture / stack
 
+System diagram: [`docs/architecture-diagram.html`](docs/architecture-diagram.html) (animated, open in browser) / [`docs/architecture-diagram.svg`](docs/architecture-diagram.svg) (static image).
+
+![Matcha Bot architecture](docs/architecture-diagram.svg)
+
 | Layer | Tech |
 |---|---|
 | Backend | FastAPI, SQLAlchemy + Alembic, LangGraph (agent graph: fetch_history → retrieve → generate → extract_favourite) |
