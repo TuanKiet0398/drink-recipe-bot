@@ -60,7 +60,7 @@ docker-compose.yml
 
 ### Docker Compose (recommended)
 
-Create `backend/.env` (see the environment variables table below), then:
+Copy `backend/.env.example` to `backend/.env` and fill in real values (see the environment variables table below), then:
 
 ```bash
 docker compose up --build
