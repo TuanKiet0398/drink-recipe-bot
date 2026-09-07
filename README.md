@@ -12,6 +12,7 @@ A drink-recipe (tea, matcha, etc.) consulting chatbot for a shop, served over Te
   - Users: list/block/unblock users per channel.
   - Access log & Audit log: access history and admin action history (filter by action, search, danger badges).
   - Usage: token usage tracking (chart by model) for OpenAI calls.
+- **Switchable LLM provider**: a Settings page selects OpenAI or any OpenAI-compatible endpoint (Ollama) and the chat model, stored encrypted in the database and effective without a restart (`app/llm_settings.py`, `app/routers/admin_llm_settings.py`). Embeddings stay on OpenAI's `text-embedding-3-small`, because the Chroma index depends on it.
 - **Auth**: Basic Auth for the admin dashboard (`ADMIN_USERNAME` / `ADMIN_PASSWORD`).
 
 ## Architecture / stack
@@ -39,6 +40,7 @@ backend/
     agent/                 # LangGraph nodes: fetch_history, retrieve, generate, extract_favourite
     routers/                # HTTP routers: admin_channels, admin_docs, admin_logs, admin_usage, admin_users, health
     routers/webhook.py       # NOT an HTTP route — message-processing pipeline called by telegram_poller.py
+    routers/admin_llm_settings.py  # GET/PUT /admin/llm-settings, POST /admin/llm-settings/test
     routers/metrics.py       # GET /metrics — Prometheus scrape endpoint (no auth, not exposed by nginx)
     db/                      # SQLAlchemy models (Channel, User, Message, Favourite, Document, AdminAuditLog, TokenUsage) + session
     channel_manager.py    # spawns/reconciles one long-poll task per active Telegram channel
@@ -48,6 +50,7 @@ backend/
     crypto.py              # token/credential encryption (AES-GCM)
     retry.py                # single-retry wrapper used around LLM/embedding calls
     token_usage.py         # persists per-call token counts
+    llm_settings.py        # active chat provider/model: DB-backed, env fallback, encrypted key
     metrics.py             # Prometheus collectors: tokens, cost, node latency, Telegram traffic
     config.py               # settings (env)
   SOUL.md            # bot personality / tone
@@ -113,6 +116,8 @@ All routes below require HTTP Basic Auth (`app/auth.py`, `require_admin`), excep
 | POST | `/admin/login` | Validate admin credentials (frontend login) |
 | GET/POST | `/admin/channels` | List / create a Telegram channel |
 | POST | `/admin/channels/test` | Test a bot token before saving |
+| GET/PUT | `/admin/llm-settings` | Read / update the active LLM provider and chat model |
+| POST | `/admin/llm-settings/test` | Test a provider configuration before saving |
 | PATCH | `/admin/channels/{id}` | Update a channel |
 | POST | `/admin/channels/{id}/test` | Test a saved channel's token |
 | DELETE | `/admin/channels/{id}` | Delete a channel (`?force=true` if it still has users) |

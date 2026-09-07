@@ -117,3 +117,23 @@ host port and nginx proxies only `/admin/` and `/health`.
   SSM Run Command would remove the exposure entirely.
 - Cost figures in Grafana are estimates from a hard-coded price table
   (`backend/app/metrics.py`). The provider's bill is authoritative.
+
+## Using Ollama
+
+The LLM provider is chosen in the admin panel under Settings, not in Terraform.
+
+Two things to know when pointing it at Ollama:
+
+- **Do not run Ollama on this instance.** A `t3.small` has 2 GB of RAM, which the
+  application stack and the monitoring stack already share. Run Ollama on a
+  separate host and give its URL in the Settings page.
+- **Port 11434 is not open.** The security group opens only 80, 3000, and 22. If
+  the Ollama host is reachable over the public internet it needs no change here;
+  if you place it inside the VPC, add an egress path deliberately rather than
+  widening ingress.
+
+When the backend runs in Docker on a developer machine, `http://localhost:11434`
+points at the container itself. Use `http://host.docker.internal:11434/v1`.
+
+Embeddings never follow this setting — they always use OpenAI's
+`text-embedding-3-small`, because the Chroma index is built with it.
