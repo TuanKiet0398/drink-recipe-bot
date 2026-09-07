@@ -50,11 +50,10 @@ After=docker.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/opt/matcha
-EnvironmentFile=/opt/matcha/.env
 # The compose file arrives with the first deploy, so a boot before that
 # must not fail the unit.
-ExecStart=/bin/bash -c 'test -f docker-compose.prod.yml && docker compose -f docker-compose.prod.yml up -d || true'
-ExecStop=/bin/bash -c 'test -f docker-compose.prod.yml && docker compose -f docker-compose.prod.yml down || true'
+ExecStart=/bin/bash -c 'test -f docker-compose.prod.yml && docker compose --env-file /opt/matcha/.env -f docker-compose.prod.yml up -d || true'
+ExecStop=/bin/bash -c 'test -f docker-compose.prod.yml && docker compose --env-file /opt/matcha/.env -f docker-compose.prod.yml down || true'
 
 [Install]
 WantedBy=multi-user.target

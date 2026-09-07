@@ -28,6 +28,43 @@ jobs:
           ENCRYPTION_KEY: ***REMOVED***
         run: pytest -q
 
+      - name: Lint backend
+        working-directory: backend
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Validate Prometheus config
+        run: |
+          docker run --rm -v "$PWD/monitoring:/m" --entrypoint promtool \
+            prom/prometheus check rules /m/alerts.yml
+          docker run --rm -v "$PWD/monitoring:/etc/prometheus:ro" --entrypoint promtool \
+            prom/prometheus check config /etc/prometheus/prometheus.yml
+
+      - name: Validate production compose file
+        env:
+          GHCR_REPO: example/repo
+          GRAFANA_ADMIN_PASSWORD: placeholder
+        run: |
+          # docker-compose.prod.yml declares env_file: ./.env, which must
+          # exist for `config` to resolve. On the host it comes from SSM.
+          : > .env
+          docker compose -f docker-compose.prod.yml config >/dev/null
+          rm .env
+
+      - name: Validate Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.5
+          terraform_wrapper: false
+
+      - name: Terraform fmt and validate
+        working-directory: infra
+        run: |
+          terraform init -backend=false
+          terraform fmt -check
+          terraform validate
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -80,3 +117,49 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ steps.image.outputs.repo }}-${{ matrix.name }}:latest
             ${{ env.REGISTRY }}/${{ steps.image.outputs.repo }}-${{ matrix.name }}:${{ github.sha }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up the SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy.pem
+          chmod 600 ~/.ssh/deploy.pem
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      # Shipping monitoring/ on every deploy is what keeps the Prometheus
+      # and Grafana configuration in git rather than hand-edited on the host.
+      - name: Copy compose and monitoring config
+        run: |
+          scp -i ~/.ssh/deploy.pem -r \
+            docker-compose.prod.yml monitoring \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/opt/matcha/"
+
+      - name: Pull images and restart the stack
+        run: |
+          ssh -i ~/.ssh/deploy.pem "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            'set -euo pipefail
+             cd /opt/matcha
+             # --env-file rather than sourcing .env: a value containing
+             # whitespace would break under `set -a && . ./.env`.
+             docker compose --env-file ./.env -f docker-compose.prod.yml pull
+             docker compose --env-file ./.env -f docker-compose.prod.yml up -d
+             docker image prune -f'
+
+      # nginx proxies /health straight to the backend, so this reaches the
+      # application rather than the SPA shell.
+      - name: Wait for the backend to report healthy
+        run: |
+          ssh -i ~/.ssh/deploy.pem "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" \
+            'for i in $(seq 1 30); do
+               if curl -sf http://localhost/health >/dev/null; then
+                 echo "healthy after $i attempts"; exit 0
+               fi
+               sleep 2
+             done
+             echo "backend never became healthy"; exit 1'
