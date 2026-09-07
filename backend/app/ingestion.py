@@ -9,7 +9,6 @@ from app.token_usage import log_token_usage
 
 logger = logging.getLogger(__name__)
 
-CHUNK_MODEL = "gpt-4o-mini"
 EMBEDDING_MODEL = "text-embedding-3-small"
 
 _CHUNK_PROMPT = """You split a document into overlapping chunks for a shop's knowledge base chatbot.
@@ -44,28 +43,32 @@ def chunk_text(text: str, chunk_size: int = 500) -> list[str]:
     return chunks or [text]
 
 
-def _chunk_via_llm(text: str, filename: str, openai_client, db, user_id: int | None) -> list[Chunk]:
+def _chunk_via_llm(
+    text: str, filename: str, chat_client, chat_model: str, db, user_id: int | None
+) -> list[Chunk]:
     def _call():
-        return openai_client.chat.completions.create(
-            model=CHUNK_MODEL,
+        return chat_client.chat.completions.create(
+            model=chat_model,
             messages=[{"role": "user", "content": _CHUNK_PROMPT.format(filename=filename, text=text)}],
             response_format={"type": "json_object"},
         )
 
-    response = retry_once(_call)
-    log_token_usage(db, user_id, "chunk_document", CHUNK_MODEL, response.usage)
+    response = retry_once(_call, call_type="chunk_document", model=chat_model)
+    log_token_usage(db, user_id, "chunk_document", chat_model, response.usage)
     parsed = json.loads(response.choices[0].message.content)
     return [Chunk.model_validate(c) for c in parsed["chunks"]]
 
 
-def chunk_document(text: str, filename: str, openai_client, db, user_id: int | None = None) -> list[Chunk]:
+def chunk_document(
+    text: str, filename: str, chat_client, chat_model: str, db, user_id: int | None = None
+) -> list[Chunk]:
     """Split `text` into bilingual (Vietnamese/English headline+summary)
     chunks via an LLM call. Falls back to the naive `chunk_text()` splitter
     (wrapped as single-field chunks) if the LLM call fails or returns
     unparseable output, so a provider outage never blocks a document upload.
     """
     try:
-        chunks = _chunk_via_llm(text, filename, openai_client, db, user_id)
+        chunks = _chunk_via_llm(text, filename, chat_client, chat_model, db, user_id)
         if chunks:
             return chunks
     except Exception:
@@ -78,7 +81,7 @@ def embed_and_upsert(
     filename: str,
     document_id: int,
     chroma_client,
-    openai_client,
+    embedding_client,
     collection: str = "matcha_knowledge",
 ) -> None:
     from app.agent.clients import get_or_create_collection
@@ -87,7 +90,8 @@ def embed_and_upsert(
 
     texts = [chunk.as_text() for chunk in chunks]
     embeddings = [
-        openai_client.embeddings.create(model=EMBEDDING_MODEL, input=text).data[0].embedding for text in texts
+        embedding_client.embeddings.create(model=EMBEDDING_MODEL, input=text).data[0].embedding
+        for text in texts
     ]
     ids = [str(uuid.uuid4()) for _ in chunks]
     metadatas = [{"filename": filename, "document_id": document_id} for _ in chunks]

@@ -100,7 +100,14 @@ def test_retrieve_returns_top_chunk_above_threshold(db_session):
         [{"documents": [["Whisk matcha with a bamboo chasen."]], "distances": [[0.1]]}]
     )
 
-    result = retrieve(state, db_session, chroma_client=fake_chroma, openai_client=fake_openai)
+    result = retrieve(
+        state,
+        db_session,
+        chroma_client=fake_chroma,
+        chat_client=fake_openai,
+        embedding_client=fake_openai,
+        chat_model="gpt-4o-mini",
+    )
 
     assert result.retrieved_chunks == ["Whisk matcha with a bamboo chasen."]
     # The rewritten query is identical to the original, so only one
@@ -114,7 +121,14 @@ def test_retrieve_filters_out_hits_below_score_threshold(db_session):
     # distance=0.9 -> score=0.1, below the 0.50 default threshold
     fake_chroma, _ = _fake_chroma([{"documents": [["irrelevant tea chunk"]], "distances": [[0.9]]}])
 
-    result = retrieve(state, db_session, chroma_client=fake_chroma, openai_client=fake_openai)
+    result = retrieve(
+        state,
+        db_session,
+        chroma_client=fake_chroma,
+        chat_client=fake_openai,
+        embedding_client=fake_openai,
+        chat_model="gpt-4o-mini",
+    )
 
     assert result.retrieved_chunks == []
 
@@ -133,7 +147,14 @@ def test_retrieve_searches_twice_and_merges_when_rewrite_differs(db_session):
         ]
     )
 
-    result = retrieve(state, db_session, chroma_client=fake_chroma, openai_client=fake_openai)
+    result = retrieve(
+        state,
+        db_session,
+        chroma_client=fake_chroma,
+        chat_client=fake_openai,
+        embedding_client=fake_openai,
+        chat_model="gpt-4o-mini",
+    )
 
     assert fake_collection.query.call_count == 2
     # Merged order by score would be [Chunk B (0.9), Chunk A (0.8)];
@@ -149,7 +170,14 @@ def test_retrieve_tolerates_chroma_query_failure_and_returns_empty_chunks(db_ses
     fake_chroma = MagicMock()
     fake_chroma.get_or_create_collection.return_value = fake_collection
 
-    result = retrieve(state, db_session, chroma_client=fake_chroma, openai_client=fake_openai)
+    result = retrieve(
+        state,
+        db_session,
+        chroma_client=fake_chroma,
+        chat_client=fake_openai,
+        embedding_client=fake_openai,
+        chat_model="gpt-4o-mini",
+    )
 
     assert result.retrieved_chunks == []
 
@@ -164,7 +192,14 @@ def test_retrieve_retries_openai_embedding_once_then_succeeds(db_session):
     fake_chroma, _ = _fake_chroma([{"documents": [[]], "distances": [[]]}])
 
     with patch("app.retry.time.sleep"):
-        result = retrieve(state, db_session, chroma_client=fake_chroma, openai_client=fake_openai)
+        result = retrieve(
+            state,
+            db_session,
+            chroma_client=fake_chroma,
+            chat_client=fake_openai,
+            embedding_client=fake_openai,
+            chat_model="gpt-4o-mini",
+        )
 
     assert fake_openai.embeddings.create.call_count == 2
     assert result.retrieved_chunks == []
@@ -175,7 +210,9 @@ def test_rewrite_query_falls_back_to_original_question_when_llm_fails():
     fake_openai.chat.completions.create.side_effect = RuntimeError("down")
 
     with patch("app.retry.time.sleep"):
-        result = rewrite_query("how to brew matcha?", [], fake_openai, db=MagicMock(), user_id=1)
+        result = rewrite_query(
+            "how to brew matcha?", [], fake_openai, "gpt-4o-mini", db=MagicMock(), user_id=1
+        )
 
     assert result == "how to brew matcha?"
 
@@ -187,7 +224,7 @@ def test_rerank_reorders_chunks_by_llm_response():
     ]
     fake_openai.chat.completions.create.return_value.usage = None
 
-    result = rerank("q", ["first", "second"], fake_openai, db=MagicMock(), user_id=1)
+    result = rerank("q", ["first", "second"], fake_openai, "gpt-4o-mini", db=MagicMock(), user_id=1)
 
     assert result == ["second", "first"]
 
@@ -199,7 +236,7 @@ def test_rerank_keeps_original_order_when_llm_response_is_incomplete():
     ]
     fake_openai.chat.completions.create.return_value.usage = None
 
-    result = rerank("q", ["first", "second"], fake_openai, db=MagicMock(), user_id=1)
+    result = rerank("q", ["first", "second"], fake_openai, "gpt-4o-mini", db=MagicMock(), user_id=1)
 
     assert result == ["first", "second"]
 
@@ -207,7 +244,7 @@ def test_rerank_keeps_original_order_when_llm_response_is_incomplete():
 def test_rerank_skips_llm_call_for_a_single_chunk():
     fake_openai = MagicMock()
 
-    result = rerank("q", ["only chunk"], fake_openai, db=MagicMock(), user_id=1)
+    result = rerank("q", ["only chunk"], fake_openai, "gpt-4o-mini", db=MagicMock(), user_id=1)
 
     assert result == ["only chunk"]
     fake_openai.chat.completions.create.assert_not_called()
@@ -226,7 +263,7 @@ def test_generate_calls_openai_with_context_and_sets_reply(db_session):
     fake_openai = MagicMock()
     fake_openai.chat.completions.create.return_value = _fake_stream("Try our ceremonial grade matcha!")
 
-    result = generate(state, db_session, openai_client=fake_openai)
+    result = generate(state, db_session, chat_client=fake_openai, model="gpt-4o-mini")
 
     fake_openai.chat.completions.create.assert_called_once()
     call_kwargs = fake_openai.chat.completions.create.call_args.kwargs
@@ -244,7 +281,7 @@ def test_generate_calls_on_delta_with_accumulated_text_as_chunks_arrive(db_sessi
     fake_openai.chat.completions.create.return_value = _fake_stream("Try ", "our ", "matcha!")
 
     seen: list[str] = []
-    result = generate(state, db_session, openai_client=fake_openai, on_delta=seen.append)
+    result = generate(state, db_session, chat_client=fake_openai, model="gpt-4o-mini", on_delta=seen.append)
 
     assert seen == ["Try ", "Try our ", "Try our matcha!"]
     assert result.reply == "Try our matcha!"
@@ -259,7 +296,9 @@ def test_generate_swallows_on_delta_errors(db_session):
     def broken_on_delta(_text: str) -> None:
         raise RuntimeError("delivery failed")
 
-    result = generate(state, db_session, openai_client=fake_openai, on_delta=broken_on_delta)
+    result = generate(
+        state, db_session, chat_client=fake_openai, model="gpt-4o-mini", on_delta=broken_on_delta
+    )
 
     assert result.reply == "Try our matcha!"
 
@@ -277,7 +316,7 @@ def test_generate_system_prompt_restricts_recommendations_to_retrieved_knowledge
         "We don't have that, but try our matcha latte!"
     )
 
-    generate(state, MagicMock(), openai_client=fake_openai)
+    generate(state, MagicMock(), chat_client=fake_openai, model="gpt-4o-mini")
 
     system_message = fake_openai.chat.completions.create.call_args.kwargs["messages"][0]["content"]
     assert "only recommend" in system_message.lower()
@@ -295,7 +334,7 @@ def test_generate_system_prompt_forbids_answering_when_no_knowledge_matched():
     fake_openai = MagicMock()
     fake_openai.chat.completions.create.return_value = _fake_stream("Sorry, we don't carry coffee here.")
 
-    generate(state, MagicMock(), openai_client=fake_openai)
+    generate(state, MagicMock(), chat_client=fake_openai, model="gpt-4o-mini")
 
     system_message = fake_openai.chat.completions.create.call_args.kwargs["messages"][0]["content"]
     assert "(no matching knowledge found)" in system_message
@@ -315,7 +354,7 @@ def test_extract_favourite_upserts_when_preference_detected(db_session, channel_
         MagicMock(message=MagicMock(content='{"drink_name": "sencha"}'))
     ]
 
-    extract_favourite(state, db=db_session, openai_client=fake_openai)
+    extract_favourite(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
 
     rows = db_session.query(Favourite).filter_by(user_id=user.id).all()
     assert len(rows) == 1
@@ -332,7 +371,7 @@ def test_generate_retries_openai_once_then_succeeds(db_session):
     ]
 
     with patch("app.retry.time.sleep"):
-        result = generate(state, db_session, openai_client=fake_openai)
+        result = generate(state, db_session, chat_client=fake_openai, model="gpt-4o-mini")
 
     assert fake_openai.chat.completions.create.call_count == 2
     assert result.reply == "Try ceremonial grade!"
@@ -346,7 +385,7 @@ def test_generate_propagates_when_both_attempts_fail(db_session):
 
     with patch("app.retry.time.sleep"):
         with pytest.raises(RuntimeError):
-            generate(state, db_session, openai_client=fake_openai)
+            generate(state, db_session, chat_client=fake_openai, model="gpt-4o-mini")
 
     assert fake_openai.chat.completions.create.call_count == 2
 
@@ -385,7 +424,7 @@ def test_extract_favourite_noop_when_no_preference(db_session, channel_id):
         MagicMock(message=MagicMock(content='{"drink_name": null}'))
     ]
 
-    extract_favourite(state, db=db_session, openai_client=fake_openai)
+    extract_favourite(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
 
     assert db_session.query(Favourite).filter_by(user_id=user.id).count() == 0
 

@@ -4,7 +4,7 @@ import time
 
 from sqlalchemy.orm import Session
 
-from app.agent.clients import get_chroma_client, get_openai_client
+from app.agent.clients import get_chat_client, get_chat_model, get_chroma_client, get_embedding_client
 from app.agent.graph import run_agent
 from app.agent.nodes import extract_favourite
 from app.agent.state import AgentState
@@ -142,7 +142,9 @@ async def process_telegram_message(
             state,
             db=db,
             chroma_client=get_chroma_client(),
-            openai_client=get_openai_client(),
+            chat_client=get_chat_client(db),
+            embedding_client=get_embedding_client(),
+            chat_model=get_chat_model(db),
             on_delta=deliverer.on_delta,
         )
         reply = result.reply or FALLBACK_REPLY
@@ -183,7 +185,13 @@ async def _extract_favourite_background(state: AgentState, user_id: int) -> None
     try:
         # extract_favourite makes a blocking OpenAI call; run it off the
         # event loop thread so it doesn't stall other concurrent requests.
-        await asyncio.to_thread(extract_favourite, state, db=db, openai_client=get_openai_client())
+        await asyncio.to_thread(
+            extract_favourite,
+            state,
+            db=db,
+            chat_client=get_chat_client(db),
+            model=get_chat_model(db),
+        )
     except Exception:
         logger.exception("extract_favourite failed for user_id=%s", user_id)
     finally:

@@ -1,7 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
 
-from app.agent.clients import get_chroma_client, get_openai_client, get_or_create_collection
+from app.agent.clients import (
+    get_chat_client,
+    get_chat_model,
+    get_chroma_client,
+    get_embedding_client,
+    get_or_create_collection,
+)
 from app.auth import log_admin_action, require_admin
 from app.db.base import get_db
 from app.db.models import Document
@@ -32,8 +38,9 @@ async def upload_doc(
         raise HTTPException(status_code=413, detail="File exceeds the 5MB upload limit")
 
     text = raw.decode("utf-8", errors="ignore")
-    openai_client = get_openai_client()
-    chunks = chunk_document(text, filename, openai_client=openai_client, db=db)
+    chunks = chunk_document(
+        text, filename, chat_client=get_chat_client(db), chat_model=get_chat_model(db), db=db
+    )
 
     doc = Document(filename=filename, chunk_count=len(chunks))
     db.add(doc)
@@ -45,7 +52,7 @@ async def upload_doc(
         filename=filename,
         document_id=doc.id,
         chroma_client=get_chroma_client(),
-        openai_client=openai_client,
+        embedding_client=get_embedding_client(),
     )
 
     log_admin_action(

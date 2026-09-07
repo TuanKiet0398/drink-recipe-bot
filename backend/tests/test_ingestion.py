@@ -40,7 +40,11 @@ def test_chunk_document_parses_bilingual_llm_response_into_chunks(db_session):
     fake_openai.chat.completions.create.return_value.usage = None
 
     chunks = chunk_document(
-        "Whisk 2g matcha with steamed milk.", "matcha-latte.txt", openai_client=fake_openai, db=db_session
+        "Whisk 2g matcha with steamed milk.",
+        "matcha-latte.txt",
+        chat_client=fake_openai,
+        chat_model="gpt-4o-mini",
+        db=db_session,
     )
 
     assert len(chunks) == 1
@@ -61,7 +65,7 @@ def test_chunk_document_prompt_asks_for_bilingual_headline_and_summary(db_sessio
     ]
     fake_openai.chat.completions.create.return_value.usage = None
 
-    chunk_document("T", "doc.txt", openai_client=fake_openai, db=db_session)
+    chunk_document("T", "doc.txt", chat_client=fake_openai, chat_model="gpt-4o-mini", db=db_session)
 
     prompt = fake_openai.chat.completions.create.call_args.kwargs["messages"][0]["content"]
     assert "Vietnamese" in prompt
@@ -73,7 +77,9 @@ def test_chunk_document_falls_back_to_naive_chunking_when_llm_fails(db_session):
     fake_openai.chat.completions.create.side_effect = RuntimeError("provider down")
 
     with patch("app.retry.time.sleep"):
-        chunks = chunk_document("word " * 10, "doc.txt", openai_client=fake_openai, db=db_session)
+        chunks = chunk_document(
+            "word " * 10, "doc.txt", chat_client=fake_openai, chat_model="gpt-4o-mini", db=db_session
+        )
 
     assert len(chunks) == 1
     assert chunks[0].original_text.startswith("word")
@@ -87,7 +93,9 @@ def test_chunk_document_falls_back_when_llm_response_is_malformed_json(db_sessio
     ]
     fake_openai.chat.completions.create.return_value.usage = None
 
-    chunks = chunk_document("some document text", "doc.txt", openai_client=fake_openai, db=db_session)
+    chunks = chunk_document(
+        "some document text", "doc.txt", chat_client=fake_openai, chat_model="gpt-4o-mini", db=db_session
+    )
 
     assert len(chunks) == 1
     assert chunks[0].original_text == "some document text"
@@ -102,7 +110,7 @@ def test_embed_and_upsert_writes_chunk_text_and_metadata_to_chroma():
 
     chunk = Chunk(headline="H", summary="S", original_text="T")
     embed_and_upsert(
-        [chunk], filename="a.txt", document_id=42, chroma_client=fake_chroma, openai_client=fake_openai
+        [chunk], filename="a.txt", document_id=42, chroma_client=fake_chroma, embedding_client=fake_openai
     )
 
     fake_collection.upsert.assert_called_once()
@@ -122,7 +130,7 @@ def test_embed_and_upsert_round_trips_through_real_chroma(tmp_path):
 
     chunk = Chunk(headline="Matcha Latte", summary="A latte.", original_text="Whisk matcha with milk.")
     embed_and_upsert(
-        [chunk], filename="matcha.txt", document_id=1, chroma_client=real_chroma, openai_client=fake_openai
+        [chunk], filename="matcha.txt", document_id=1, chroma_client=real_chroma, embedding_client=fake_openai
     )
 
     collection = get_or_create_collection(real_chroma, "matcha_knowledge")

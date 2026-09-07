@@ -17,8 +17,6 @@ from app.token_usage import log_token_usage
 logger = logging.getLogger(__name__)
 
 EMBEDDING_MODEL = "text-embedding-3-small"
-REWRITE_MODEL = "gpt-4o-mini"
-RERANK_MODEL = "gpt-4o-mini"
 
 # The bot's personality/tone — see SOUL.md for the full description. Read
 # once and cached; editing it requires a server restart to take effect.
@@ -52,7 +50,9 @@ def fetch_history(state: AgentState, db: Session, limit: int = 10) -> AgentState
     return state
 
 
-def rewrite_query(question: str, history: list[dict], openai_client, db: Session, user_id: int | None) -> str:
+def rewrite_query(
+    question: str, history: list[dict], chat_client, model: str, db: Session, user_id: int | None
+) -> str:
     """Condenses the conversation + question into a focused knowledge-base
     search query. Falls back to the original question if the LLM call
     fails, so retrieval degrades to a single (still-valid) search rather
@@ -67,23 +67,25 @@ def rewrite_query(question: str, history: list[dict], openai_client, db: Session
     )
 
     def _call():
-        return openai_client.chat.completions.create(
-            model=REWRITE_MODEL,
+        return chat_client.chat.completions.create(
+            model=model,
             messages=[{"role": "user", "content": prompt}],
         )
 
     try:
-        response = retry_once(_call, call_type="rewrite_query", model=REWRITE_MODEL)
+        response = retry_once(_call, call_type="rewrite_query", model=model)
     except Exception:
         logger.exception("rewrite_query failed; falling back to the original question")
         return question
 
-    log_token_usage(db, user_id, "rewrite_query", REWRITE_MODEL, response.usage)
+    log_token_usage(db, user_id, "rewrite_query", model, response.usage)
     rewritten = (response.choices[0].message.content or "").strip()
     return rewritten or question
 
 
-def rerank(question: str, chunks: list[str], openai_client, db: Session, user_id: int | None) -> list[str]:
+def rerank(
+    question: str, chunks: list[str], chat_client, model: str, db: Session, user_id: int | None
+) -> list[str]:
     """Reorders `chunks` by relevance to `question` via an LLM call. Falls
     back to the original (retrieval-score) order if the call fails or
     returns an incomplete ranking."""
@@ -100,15 +102,15 @@ def rerank(question: str, chunks: list[str], openai_client, db: Session, user_id
     )
 
     def _call():
-        return openai_client.chat.completions.create(
-            model=RERANK_MODEL,
+        return chat_client.chat.completions.create(
+            model=model,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
         )
 
     try:
-        response = retry_once(_call, call_type="rerank", model=RERANK_MODEL)
-        log_token_usage(db, user_id, "rerank", RERANK_MODEL, response.usage)
+        response = retry_once(_call, call_type="rerank", model=model)
+        log_token_usage(db, user_id, "rerank", model, response.usage)
         order = json.loads(response.choices[0].message.content)["order"]
         reranked = [chunks[i - 1] for i in order if 1 <= i <= len(chunks)]
         if len(reranked) == len(chunks):
@@ -122,7 +124,9 @@ def retrieve(
     state: AgentState,
     db: Session,
     chroma_client,
-    openai_client,
+    chat_client,
+    embedding_client,
+    chat_model: str,
     collection: str = "matcha_knowledge",
     retrieval_k: int = 10,
     final_k: int = 5,
@@ -130,7 +134,7 @@ def retrieve(
 ) -> AgentState:
     def _embed(text: str) -> list[float]:
         response = retry_once(
-            lambda: openai_client.embeddings.create(model=EMBEDDING_MODEL, input=text),
+            lambda: embedding_client.embeddings.create(model=EMBEDDING_MODEL, input=text),
             call_type="embedding",
             model=EMBEDDING_MODEL,
         )
@@ -140,7 +144,9 @@ def retrieve(
     try:
         coll = get_or_create_collection(chroma_client, collection)
 
-        rewritten = rewrite_query(state.incoming_text, state.history, openai_client, db, state.user_id)
+        rewritten = rewrite_query(
+            state.incoming_text, state.history, chat_client, chat_model, db, state.user_id
+        )
         query_texts = [state.incoming_text]
         if rewritten != state.incoming_text:
             query_texts.append(rewritten)
@@ -165,7 +171,9 @@ def retrieve(
         return state
 
     merged = sorted(best_scores, key=best_scores.get, reverse=True)
-    state.retrieved_chunks = rerank(state.incoming_text, merged, openai_client, db, state.user_id)[:final_k]
+    state.retrieved_chunks = rerank(state.incoming_text, merged, chat_client, chat_model, db, state.user_id)[
+        :final_k
+    ]
     RETRIEVE_CHUNKS.observe(len(state.retrieved_chunks))
     return state
 
@@ -195,8 +203,8 @@ def _build_system_prompt(state: AgentState) -> str:
 def generate(
     state: AgentState,
     db: Session,
-    openai_client,
-    model: str = "gpt-4o-mini",
+    chat_client,
+    model: str,
     on_delta: Callable[[str], None] | None = None,
 ) -> AgentState:
     messages = [{"role": "system", "content": _build_system_prompt(state)}]
@@ -206,7 +214,7 @@ def generate(
     def _stream_once() -> tuple[str, object]:
         parts: list[str] = []
         usage = None
-        stream = openai_client.chat.completions.create(
+        stream = chat_client.chat.completions.create(
             model=model,
             messages=messages,
             stream=True,
@@ -230,13 +238,13 @@ def generate(
     return state
 
 
-def extract_favourite(state: AgentState, db: Session, openai_client, model: str = "gpt-4o-mini") -> None:
+def extract_favourite(state: AgentState, db: Session, chat_client, model: str) -> None:
     prompt = (
         "Extract whether the user expressed a favourite drink preference in this message. "
         'Respond with strict JSON: {"drink_name": "<name>"} or {"drink_name": null} if none. '
         f"Message: {state.incoming_text!r}"
     )
-    response = openai_client.chat.completions.create(
+    response = chat_client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},

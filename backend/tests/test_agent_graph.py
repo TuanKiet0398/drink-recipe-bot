@@ -36,7 +36,13 @@ def test_run_agent_produces_a_reply(db_session, channel_id):
 
     seen: list[str] = []
     result = run_agent(
-        state, db=db_session, chroma_client=fake_chroma, openai_client=fake_openai, on_delta=seen.append
+        state,
+        db=db_session,
+        chroma_client=fake_chroma,
+        chat_client=fake_openai,
+        embedding_client=fake_openai,
+        chat_model="gpt-4o-mini",
+        on_delta=seen.append,
     )
 
     assert result.reply == "Try ceremonial grade!"
@@ -63,7 +69,9 @@ def test_graph_nodes_record_duration(db_session, monkeypatch):
         AgentState(user_id=1, chat_id="1", incoming_text="hi"),
         db=db_session,
         chroma_client=None,
-        openai_client=None,
+        chat_client=None,
+        embedding_client=None,
+        chat_model="gpt-4o-mini",
     )
 
     after = REGISTRY.get_sample_value("agent_node_duration_seconds_count", labels) or 0.0

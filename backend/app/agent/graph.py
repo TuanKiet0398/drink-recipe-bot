@@ -22,13 +22,27 @@ def _timed(node_name: str, fn: Callable) -> Callable:
     return _wrapped
 
 
-def build_graph(db: Session, chroma_client, openai_client, on_delta: Callable[[str], None] | None = None):
+def build_graph(
+    db: Session,
+    chroma_client,
+    chat_client,
+    embedding_client,
+    chat_model: str,
+    on_delta: Callable[[str], None] | None = None,
+):
     graph = StateGraph(AgentState)
 
     graph.add_node("fetch_history", _timed("fetch_history", lambda s: fetch_history(s, db)))
-    graph.add_node("retrieve", _timed("retrieve", lambda s: retrieve(s, db, chroma_client, openai_client)))
     graph.add_node(
-        "generate", _timed("generate", lambda s: generate(s, db, openai_client, on_delta=on_delta))
+        "retrieve",
+        _timed(
+            "retrieve",
+            lambda s: retrieve(s, db, chroma_client, chat_client, embedding_client, chat_model),
+        ),
+    )
+    graph.add_node(
+        "generate",
+        _timed("generate", lambda s: generate(s, db, chat_client, chat_model, on_delta=on_delta)),
     )
 
     graph.set_entry_point("fetch_history")
@@ -43,9 +57,11 @@ def run_agent(
     state: AgentState,
     db: Session,
     chroma_client,
-    openai_client,
+    chat_client,
+    embedding_client,
+    chat_model: str,
     on_delta: Callable[[str], None] | None = None,
 ) -> AgentState:
-    compiled = build_graph(db, chroma_client, openai_client, on_delta=on_delta)
+    compiled = build_graph(db, chroma_client, chat_client, embedding_client, chat_model, on_delta=on_delta)
     result_dict = compiled.invoke(state)
     return AgentState.model_validate(result_dict)

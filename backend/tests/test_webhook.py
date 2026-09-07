@@ -16,7 +16,8 @@ async def test_process_message_creates_user_stores_message_and_replies(db_sessio
         patch("app.routers.webhook.send_chat_action", new_callable=AsyncMock) as mock_typing,
         patch("app.routers.webhook.extract_favourite"),
         patch("app.routers.webhook.get_chroma_client", return_value=MagicMock()),
-        patch("app.routers.webhook.get_openai_client", return_value=MagicMock()),
+        patch("app.routers.webhook.get_chat_client", return_value=MagicMock()),
+        patch("app.routers.webhook.get_embedding_client", return_value=MagicMock()),
     ):
         mock_send.return_value = 555
 
@@ -46,7 +47,8 @@ async def test_process_message_delivers_streamed_reply_progressively(db_session,
         patch("app.routers.webhook.send_chat_action", new_callable=AsyncMock),
         patch("app.routers.webhook.extract_favourite"),
         patch("app.routers.webhook.get_chroma_client", return_value=MagicMock()),
-        patch("app.routers.webhook.get_openai_client", return_value=MagicMock()),
+        patch("app.routers.webhook.get_chat_client", return_value=MagicMock()),
+        patch("app.routers.webhook.get_embedding_client", return_value=MagicMock()),
     ):
         mock_send.return_value = 999
 
@@ -162,7 +164,8 @@ async def test_process_message_background_favourite_extraction_actually_runs(db_
         patch("app.routers.webhook.run_agent") as mock_run_agent,
         patch("app.routers.webhook.send_message", new_callable=AsyncMock),
         patch("app.routers.webhook.send_chat_action", new_callable=AsyncMock),
-        patch("app.routers.webhook.get_openai_client", return_value=fake_openai),
+        patch("app.routers.webhook.get_chat_client", return_value=fake_openai),
+        patch("app.routers.webhook.get_embedding_client", return_value=fake_openai),
         patch("app.db.base.SessionLocal", TestSessionLocal),
     ):
 
