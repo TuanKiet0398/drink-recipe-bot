@@ -2,11 +2,20 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.channel_manager import channel_manager
 from app.config import get_settings
 from app.db.base import SessionLocal
-from app.routers import admin_channels, admin_docs, admin_logs, admin_usage, admin_users, health
+from app.routers import (
+    admin_channels,
+    admin_docs,
+    admin_logs,
+    admin_usage,
+    admin_users,
+    health,
+    metrics,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,3 +49,8 @@ app.include_router(admin_users.router)
 app.include_router(admin_users.login_router)
 app.include_router(admin_logs.router)
 app.include_router(admin_usage.router)
+app.include_router(metrics.router)
+
+# HTTP-level latency/status metrics. `expose()` is not called — the /metrics
+# route above already renders the default registry, which this writes into.
+Instrumentator().instrument(app)

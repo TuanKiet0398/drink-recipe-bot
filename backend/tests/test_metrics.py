@@ -102,3 +102,30 @@ def test_record_poll_error_counts_by_channel():
     metrics.record_poll_error(7)
 
     assert _sample("telegram_poll_errors_total", labels) - before == 1
+
+
+def test_metrics_endpoint_is_reachable_without_auth(client):
+    response = client.get("/metrics")
+    assert response.status_code == 200
+
+
+def test_metrics_endpoint_exposes_the_expected_collectors(client):
+    body = client.get("/metrics").text
+    for name in (
+        "llm_tokens_total",
+        "llm_cost_usd_total",
+        "llm_calls_total",
+        "llm_retries_total",
+        "agent_node_duration_seconds",
+        "retrieve_chunks_returned",
+        "telegram_messages_total",
+        "telegram_poll_errors_total",
+        "active_channels",
+    ):
+        assert name in body
+
+
+def test_metrics_endpoint_exposes_http_request_metrics(client):
+    client.get("/health")
+    body = client.get("/metrics").text
+    assert "http_request_duration_seconds" in body
