@@ -76,7 +76,7 @@ def rewrite_query(question: str, history: list[dict], openai_client, db: Session
         )
 
     try:
-        response = retry_once(_call)
+        response = retry_once(_call, call_type="rewrite_query", model=REWRITE_MODEL)
     except Exception:
         logger.exception("rewrite_query failed; falling back to the original question")
         return question
@@ -110,7 +110,7 @@ def rerank(question: str, chunks: list[str], openai_client, db: Session, user_id
         )
 
     try:
-        response = retry_once(_call)
+        response = retry_once(_call, call_type="rerank", model=RERANK_MODEL)
         log_token_usage(db, user_id, "rerank", RERANK_MODEL, response.usage)
         order = json.loads(response.choices[0].message.content)["order"]
         reranked = [chunks[i - 1] for i in order if 1 <= i <= len(chunks)]
@@ -133,7 +133,9 @@ def retrieve(
 ) -> AgentState:
     def _embed(text: str) -> list[float]:
         response = retry_once(
-            lambda: openai_client.embeddings.create(model=EMBEDDING_MODEL, input=text)
+            lambda: openai_client.embeddings.create(model=EMBEDDING_MODEL, input=text),
+            call_type="embedding",
+            model=EMBEDDING_MODEL,
         )
         log_token_usage(db, state.user_id, "embedding", EMBEDDING_MODEL, response.usage)
         return response.data[0].embedding
@@ -223,7 +225,7 @@ def generate(
                 usage = chunk.usage
         return "".join(parts), usage
 
-    reply_text, usage = retry_once(_stream_once)
+    reply_text, usage = retry_once(_stream_once, call_type="generate", model=model)
     log_token_usage(db, state.user_id, "generate", model, usage)
     state.reply = reply_text
     return state
