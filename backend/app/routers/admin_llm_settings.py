@@ -92,6 +92,29 @@ def test_settings(
     }
 
 
+@router.post("/models")
+def list_models(
+    payload: SettingsPayload,
+    db: Session = Depends(get_db),
+    admin_user: str = Depends(require_admin),
+):
+    """List the models the given (possibly unsaved) configuration exposes.
+
+    Ollama serves /v1/models over its OpenAI-compatible endpoint, so one code
+    path covers both providers. Same three rules as /test: a throwaway
+    client, no retry_once, and no token_usage row.
+    """
+    _validate(payload)
+
+    client = build_chat_client(payload.provider, payload.base_url, _key_for(payload, db))
+    try:
+        models = sorted(model.id for model in client.models.list())
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)[:_ERROR_MAX_CHARS], "models": [], "count": 0}
+
+    return {"ok": True, "models": models, "count": len(models)}
+
+
 @router.put("")
 def update_settings(
     payload: SettingsPayload,

@@ -283,3 +283,120 @@ def test_put_with_a_blank_key_keeps_the_stored_one(client, db_session):
     resolved = llm_settings.resolve(db_session)
     assert resolved.api_key == "sk-keep"
     assert resolved.chat_model == "gpt-4o"
+
+
+def test_models_endpoint_requires_auth(client):
+    assert client.post("/admin/llm-settings/models", json={}).status_code == 401
+
+
+def test_models_endpoint_lists_provider_models(client, fake_provider):
+    _, provider = fake_provider
+    provider.models.list.return_value = [
+        type("M", (), {"id": "llama3.1:latest"})(),
+        type("M", (), {"id": "qwen:1.8b"})(),
+    ]
+
+    body = client.post(
+        "/admin/llm-settings/models",
+        auth=AUTH,
+        json={
+            "provider": "ollama",
+            "chat_model": "llama3.1:latest",
+            "base_url": "http://ollama.local:11434/v1",
+            "api_key": None,
+        },
+    ).json()
+
+    assert body["ok"] is True
+    assert body["models"] == ["llama3.1:latest", "qwen:1.8b"]
+    assert body["count"] == 2
+
+
+def test_models_endpoint_reports_a_provider_failure(client, fake_provider):
+    _, provider = fake_provider
+    provider.models.list.side_effect = RuntimeError("Connection refused")
+
+    body = client.post(
+        "/admin/llm-settings/models",
+        auth=AUTH,
+        json={
+            "provider": "ollama",
+            "chat_model": "llama3.1:latest",
+            "base_url": "http://ollama.local:11434/v1",
+            "api_key": None,
+        },
+    ).json()
+
+    assert body["ok"] is False
+    assert "Connection refused" in body["error"]
+    assert body["models"] == []
+    assert body["count"] == 0
+
+
+def test_models_endpoint_uses_the_stored_key_when_none_is_supplied(client, db_session, fake_provider):
+    factory, provider = fake_provider
+    provider.models.list.return_value = []
+    llm_settings.save(
+        db_session,
+        provider="openai",
+        base_url=None,
+        api_key="sk-stored",
+        chat_model="gpt-4o-mini",
+        updated_by="admin",
+    )
+
+    client.post(
+        "/admin/llm-settings/models",
+        auth=AUTH,
+        json={"provider": "openai", "chat_model": "gpt-4o-mini", "base_url": None, "api_key": None},
+    )
+
+    assert factory.call_args.args == ("openai", None, "sk-stored")
+
+
+def test_models_endpoint_writes_no_token_usage(client, db_session, fake_provider):
+    from app.db.models import TokenUsage
+
+    _, provider = fake_provider
+    provider.models.list.return_value = []
+
+    client.post(
+        "/admin/llm-settings/models",
+        auth=AUTH,
+        json={"provider": "openai", "chat_model": "gpt-4o-mini", "base_url": None, "api_key": "sk-good"},
+    )
+
+    assert db_session.query(TokenUsage).count() == 0
+
+
+def test_models_endpoint_leaves_the_cached_client_alone(client, db_session):
+    from app.agent.clients import get_chat_client, invalidate_chat_client
+
+    invalidate_chat_client()
+    before = get_chat_client(db_session)
+
+    stub = MagicMock()
+    stub.models.list.return_value = []
+    with patch(BUILD_CLIENT, return_value=stub):
+        client.post(
+            "/admin/llm-settings/models",
+            auth=AUTH,
+            json={
+                "provider": "ollama",
+                "chat_model": "llama3.1",
+                "base_url": "http://ollama.local:11434/v1",
+                "api_key": None,
+            },
+        )
+
+    assert get_chat_client(db_session) is before
+
+
+def test_models_endpoint_rejects_an_unknown_provider(client):
+    response = client.post(
+        "/admin/llm-settings/models",
+        auth=AUTH,
+        json={"provider": "anthropic", "chat_model": "claude", "base_url": None, "api_key": "k"},
+    )
+
+    assert response.status_code == 400

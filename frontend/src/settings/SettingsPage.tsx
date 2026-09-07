@@ -38,6 +38,10 @@ export function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [models, setModels] = useState<string[] | null>(null);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   async function load(): Promise<void> {
     try {
@@ -64,6 +68,13 @@ export function SettingsPage() {
   function update(patch: Partial<FormState>): void {
     setTestResult(null);
     setSaved(false);
+    setConfirming(false);
+    // Changing the provider, URL or key invalidates the model list too: it
+    // came from whatever server was configured a moment ago.
+    if (patch.chatModel === undefined) {
+      setModels(null);
+      setModelsError(null);
+    }
     setForm((current) => ({ ...current, ...patch }));
   }
 
@@ -93,9 +104,36 @@ export function SettingsPage() {
     }
   }
 
+  async function loadModels(): Promise<void> {
+    setLoadingModels(true);
+    try {
+      const result = await apiFetch<{ ok: boolean; models: string[]; count: number; error?: string }>(
+        "/admin/llm-settings/models",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload()),
+        }
+      );
+      if (result.ok) {
+        setModels(result.models);
+        setModelsError(null);
+      } else {
+        setModels(null);
+        setModelsError(result.error ?? "Failed to list models");
+      }
+    } catch {
+      setModels(null);
+      setModelsError("Failed to reach the server");
+    } finally {
+      setLoadingModels(false);
+    }
+  }
+
   async function save(): Promise<void> {
     setSaving(true);
     try {
+      setConfirming(false);
       await apiFetch<LLMSettings>("/admin/llm-settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -112,7 +150,18 @@ export function SettingsPage() {
     }
   }
 
-  const canSave = testResult?.ok === true && !saving;
+  const tested = testResult?.ok === true;
+
+  // Save is never disabled — an admin may know the configuration is right.
+  // Saving untested asks for confirmation first, because a wrong provider
+  // makes the bot fail for real customers.
+  function onSaveClick(): void {
+    if (tested) {
+      save();
+    } else {
+      setConfirming(true);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -180,12 +229,37 @@ export function SettingsPage() {
 
         <label className="flex flex-col gap-1 text-sm font-medium text-foreground">
           Chat model
+          {/* An input with a datalist, not a select: the list may fail to load,
+              or hold a model the provider does not advertise, and typing must
+              still work. */}
           <input
             aria-label="Chat model"
+            list="chat-model-options"
             value={form.chatModel}
             onChange={(e) => update({ chatModel: e.target.value })}
             className={fieldClass}
           />
+          <datalist id="chat-model-options">
+            {(models ?? []).map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+          <span className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={loadModels}
+              disabled={loadingModels}
+              className="rounded-md border border-border bg-card px-2 py-1 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50"
+            >
+              {loadingModels ? "Loading…" : "Load models"}
+            </button>
+            {models !== null && (
+              <span className="text-xs text-muted-foreground">
+                {models.length} {models.length === 1 ? "model" : "models"} available
+              </span>
+            )}
+            {modelsError && <span className="text-xs text-red-700">{modelsError}</span>}
+          </span>
         </label>
 
         <div className="flex items-center gap-3">
@@ -206,12 +280,40 @@ export function SettingsPage() {
 
         <div className="flex flex-col gap-2">
           <button
-            onClick={save}
-            disabled={!canSave}
+            onClick={onSaveClick}
+            disabled={saving}
             className="w-fit rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
           >
             Save
           </button>
+          {confirming && (
+            <div
+              role="alertdialog"
+              aria-label="Confirm saving without testing"
+              className="flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+            >
+              <span>
+                Connection not tested. Saving a broken configuration makes the bot fail for real
+                customers. Save anyway?
+              </span>
+              <span className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={save}
+                  className="rounded-md bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-700"
+                >
+                  Save anyway
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirming(false)}
+                  className="rounded-md border border-amber-300 bg-white px-3 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100"
+                >
+                  Cancel
+                </button>
+              </span>
+            </div>
+          )}
           {form.provider === "ollama" && (
             <span className="text-xs text-muted-foreground">
               Ollama has no per-token cost, so the cost chart will read zero.

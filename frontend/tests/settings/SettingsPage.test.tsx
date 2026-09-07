@@ -25,23 +25,73 @@ beforeEach(() => {
 });
 
 describe("SettingsPage", () => {
-  it("keeps Save disabled until a test succeeds", async () => {
+  it("keeps Save clickable and confirms before saving an untested configuration", async () => {
+    let saved = false;
     server.use(
-      http.post(`${API_BASE}/admin/llm-settings/test`, () =>
-        HttpResponse.json({ ok: true, model: "gpt-4o-mini", latency_ms: 120 })
-      )
+      http.put(`${API_BASE}/admin/llm-settings`, () => {
+        saved = true;
+        return HttpResponse.json(SAVED_SETTINGS);
+      })
     );
     render(<SettingsPage />);
 
     const save = await screen.findByRole("button", { name: "Save" });
-    expect(save).toBeDisabled();
+    expect(save).toBeEnabled();
 
-    await userEvent.click(screen.getByRole("button", { name: "Test connection" }));
+    await userEvent.click(save);
 
-    await waitFor(() => expect(save).toBeEnabled());
+    // Untested configurations are not blocked, only questioned.
+    expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
+    expect(saved).toBe(false);
+
+    await userEvent.click(screen.getByRole("button", { name: "Save anyway" }));
+
+    await waitFor(() => expect(saved).toBe(true));
   });
 
-  it("disables Save again when a field changes after a successful test", async () => {
+  it("cancels the confirmation without saving", async () => {
+    let saved = false;
+    server.use(
+      http.put(`${API_BASE}/admin/llm-settings`, () => {
+        saved = true;
+        return HttpResponse.json(SAVED_SETTINGS);
+      })
+    );
+    render(<SettingsPage />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Save" }));
+    await screen.findByRole("alertdialog");
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(saved).toBe(false);
+  });
+
+  it("saves without confirmation once the test has passed", async () => {
+    let saved = false;
+    server.use(
+      http.post(`${API_BASE}/admin/llm-settings/test`, () =>
+        HttpResponse.json({ ok: true, model: "gpt-4o-mini", latency_ms: 120 })
+      ),
+      http.put(`${API_BASE}/admin/llm-settings`, () => {
+        saved = true;
+        return HttpResponse.json(SAVED_SETTINGS);
+      })
+    );
+    render(<SettingsPage />);
+
+    await screen.findByRole("button", { name: "Save" });
+    await userEvent.click(screen.getByRole("button", { name: "Test connection" }));
+    await screen.findByText(/OK — gpt-4o-mini/);
+
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(saved).toBe(true));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("asks again when a field changes after a successful test", async () => {
     server.use(
       http.post(`${API_BASE}/admin/llm-settings/test`, () =>
         HttpResponse.json({ ok: true, model: "gpt-4o-mini", latency_ms: 120 })
@@ -49,15 +99,42 @@ describe("SettingsPage", () => {
     );
     render(<SettingsPage />);
 
-    const save = await screen.findByRole("button", { name: "Save" });
+    await screen.findByRole("button", { name: "Save" });
     await userEvent.click(screen.getByRole("button", { name: "Test connection" }));
-    await waitFor(() => expect(save).toBeEnabled());
+    await screen.findByText(/OK — gpt-4o-mini/);
 
-    // A configuration must never be saved on the strength of a test of a
-    // different configuration.
+    // The passing test belonged to a different configuration.
     await userEvent.type(screen.getByLabelText("Chat model"), "-turbo");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(save).toBeDisabled();
+    expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
+  });
+
+  it("lists the provider's models and offers them as suggestions", async () => {
+    server.use(
+      http.post(`${API_BASE}/admin/llm-settings/models`, () =>
+        HttpResponse.json({ ok: true, models: ["gpt-4o", "gpt-4o-mini"], count: 2 })
+      )
+    );
+    render(<SettingsPage />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Load models" }));
+
+    expect(await screen.findByText("2 models available")).toBeInTheDocument();
+    expect(document.querySelectorAll("#chat-model-options option")).toHaveLength(2);
+  });
+
+  it("reports a failure to list models", async () => {
+    server.use(
+      http.post(`${API_BASE}/admin/llm-settings/models`, () =>
+        HttpResponse.json({ ok: false, error: "Connection refused", models: [], count: 0 })
+      )
+    );
+    render(<SettingsPage />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Load models" }));
+
+    expect(await screen.findByText("Connection refused")).toBeInTheDocument();
   });
 
   it("shows the base URL field only for Ollama", async () => {
@@ -83,7 +160,8 @@ describe("SettingsPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Test connection" }));
 
     expect(await screen.findByText(/Incorrect API key provided/)).toBeInTheDocument();
-    expect(save).toBeDisabled();
+    // A red test does not lock Save; it just means the confirmation still applies.
+    expect(save).toBeEnabled();
   });
 
   it("announces that the environment default is in use", async () => {
