@@ -112,3 +112,24 @@ def record_retry(call_type: str) -> None:
         LLM_RETRIES.labels(call_type=call_type).inc()
     except Exception:
         logger.exception("Failed to record retry for call_type=%s", call_type)
+
+
+def record_telegram_message(channel_id: int, direction: str) -> None:
+    try:
+        TELEGRAM_MESSAGES.labels(channel_id=str(channel_id), direction=direction).inc()
+    except Exception:
+        logger.exception("Failed to record Telegram message for channel_id=%s", channel_id)
+
+
+def record_poll_error(channel_id: int) -> None:
+    try:
+        TELEGRAM_POLL_ERRORS.labels(channel_id=str(channel_id)).inc()
+    except Exception:
+        logger.exception("Failed to record poll error for channel_id=%s", channel_id)
+
+
+def set_active_channels(count: int) -> None:
+    try:
+        ACTIVE_CHANNELS.set(count)
+    except Exception:
+        logger.exception("Failed to set active_channels gauge")

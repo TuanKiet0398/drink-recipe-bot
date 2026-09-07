@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from app.db.base import SessionLocal
+from app.metrics import record_poll_error, record_telegram_message
 from app.routers.webhook import process_telegram_message
 from app.telegram_client import delete_webhook, get_updates
 
@@ -27,6 +28,7 @@ async def run_poller(channel_id: int, bot_token: str) -> None:
             raise
         except Exception:
             logger.exception("Telegram getUpdates failed for channel_id=%s; retrying shortly", channel_id)
+            record_poll_error(channel_id)
             await asyncio.sleep(_ERROR_BACKOFF)
             continue
 
@@ -45,6 +47,9 @@ async def _handle_update(channel_id: int, bot_token: str, update: dict) -> None:
     chat_id = str(message.get("chat", {}).get("id", ""))
     telegram_user_id = str(message.get("from", {}).get("id", ""))
     text = message.get("text", "")
+
+    if chat_id and telegram_user_id and text:
+        record_telegram_message(channel_id, "in")
 
     db = SessionLocal()
     try:

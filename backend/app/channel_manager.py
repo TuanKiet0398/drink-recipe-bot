@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.crypto import decrypt
 from app.db.models import Channel
+from app.metrics import set_active_channels
 from app.telegram_poller import run_poller
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,8 @@ class ChannelManager:
             self._tokens[channel.id] = bot_token
             self._tasks[channel.id] = asyncio.create_task(run_poller(channel.id, bot_token))
 
+        set_active_channels(len(self._tasks))
+
     async def _stop(self, channel_id: int) -> None:
         task = self._tasks.pop(channel_id, None)
         self._tokens.pop(channel_id, None)
@@ -61,6 +64,7 @@ class ChannelManager:
     async def stop_all(self) -> None:
         for channel_id in list(self._tasks):
             await self._stop(channel_id)
+        set_active_channels(len(self._tasks))
 
 
 channel_manager = ChannelManager()

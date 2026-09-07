@@ -84,3 +84,21 @@ def test_record_retry_counts_retries():
     metrics.record_retry("embedding")
 
     assert _sample("llm_retries_total", labels) - before == 1
+
+
+def test_record_telegram_message_counts_by_direction():
+    labels = {"channel_id": "7", "direction": "in"}
+    before = _sample("telegram_messages_total", labels)
+
+    metrics.record_telegram_message(7, "in")
+
+    assert _sample("telegram_messages_total", labels) - before == 1
+
+
+def test_record_poll_error_counts_by_channel():
+    labels = {"channel_id": "7"}
+    before = _sample("telegram_poll_errors_total", labels)
+
+    metrics.record_poll_error(7)
+
+    assert _sample("telegram_poll_errors_total", labels) - before == 1

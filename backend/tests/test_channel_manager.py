@@ -105,3 +105,14 @@ async def test_sync_leaves_unchanged_channel_task_running(db_session):
         assert mock_run_poller.call_count == 1
 
         await manager.stop_all()
+
+
+async def test_sync_sets_the_active_channels_gauge(db_session):
+    from prometheus_client import REGISTRY
+
+    from app.channel_manager import ChannelManager
+
+    manager = ChannelManager()
+    await manager.sync(db_session)
+
+    assert REGISTRY.get_sample_value("active_channels") == 0

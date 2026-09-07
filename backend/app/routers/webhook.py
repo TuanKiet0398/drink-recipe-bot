@@ -10,6 +10,7 @@ from app.agent.graph import run_agent
 from app.agent.nodes import extract_favourite
 from app.agent.state import AgentState
 from app.db.models import Message, User
+from app.metrics import record_telegram_message
 from app.telegram_client import edit_message_text, send_chat_action, send_message
 
 logger = logging.getLogger(__name__)
@@ -170,6 +171,8 @@ async def process_telegram_message(
             await send_message(bot_token, chat_id=chat_id, text=reply)
     except Exception:
         logger.exception("send_message failed for user_id=%s", user.id)
+
+    record_telegram_message(channel_id, "out")
 
     task = asyncio.create_task(_extract_favourite_background(state, user.id))
     _background_tasks.add(task)
