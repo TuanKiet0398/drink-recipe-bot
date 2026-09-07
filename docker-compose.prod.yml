@@ -1,0 +1,85 @@
+# Production stack for the EC2 host. Images come from GHCR — nothing is
+# built here, because a t3.small cannot build the frontend without
+# thrashing. Only ports 80 and 3000 are published; everything else talks
+# over the internal Docker network.
+services:
+  backend:
+    image: ghcr.io/${GHCR_REPO}-backend:${IMAGE_TAG:-latest}
+    env_file:
+      - ./.env
+    environment:
+      DATABASE_URL: sqlite:////app/data/local.db
+      CHROMA_PERSIST_DIR: /app/data/chroma_db
+    volumes:
+      - backend_data:/app/data
+    restart: unless-stopped
+
+  frontend:
+    image: ghcr.io/${GHCR_REPO}-frontend:${IMAGE_TAG:-latest}
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prom_data:/prometheus
+    mem_limit: 400m
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    mem_limit: 300m
+    restart: unless-stopped
+
+  node_exporter:
+    image: prom/node-exporter:v1.8.1
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      # --path.rootfs=/rootfs is what makes the mountpoint="/rootfs"
+      # selector in monitoring/alerts.yml correct.
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    pid: host
+    restart: unless-stopped
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    privileged: true
+    devices:
+      - /dev/kmsg
+    restart: unless-stopped
+
+volumes:
+  backend_data:
+  prom_data:
+  grafana_data:

@@ -6,3 +6,11 @@ goclaw/
 .env
 .env.*
 !.env.example
+!.env.prod.example
+
+# Terraform — state holds resource IDs and can hold secret values.
+infra/.terraform/
+infra/*.tfstate
+infra/*.tfstate.*
+infra/.terraform.lock.hcl
+infra/terraform.tfvars
