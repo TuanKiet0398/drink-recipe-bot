@@ -28,7 +28,8 @@ System diagram: [`docs/architecture-diagram.html`](docs/architecture-diagram.htm
 | Database | SQLite (default) / PostgreSQL supported via `DATABASE_URL` |
 | Frontend | React + TypeScript + Vite, Tailwind CSS, React Router |
 | Telegram | Per-channel long-polling (`telegram_poller.py`, `telegram_client.py`) |
-| Infra | Docker Compose (backend + frontend), GitHub Actions CI/CD |
+| Infra | Docker Compose (backend + frontend), Terraform (single EC2), GitHub Actions CI/CD |
+| Monitoring | Prometheus, Grafana, node_exporter, cadvisor |
 
 ### Project layout
 
@@ -38,6 +39,7 @@ backend/
     agent/                 # LangGraph nodes: fetch_history, retrieve, generate, extract_favourite
     routers/                # HTTP routers: admin_channels, admin_docs, admin_logs, admin_usage, admin_users, health
     routers/webhook.py       # NOT an HTTP route — message-processing pipeline called by telegram_poller.py
+    routers/metrics.py       # GET /metrics — Prometheus scrape endpoint (no auth, not exposed by nginx)
     db/                      # SQLAlchemy models (Channel, User, Message, Favourite, Document, AdminAuditLog, TokenUsage) + session
     channel_manager.py    # spawns/reconciles one long-poll task per active Telegram channel
     telegram_poller.py    # per-channel long-poll loop (get_updates)
@@ -46,15 +48,31 @@ backend/
     crypto.py              # token/credential encryption (AES-GCM)
     retry.py                # single-retry wrapper used around LLM/embedding calls
     token_usage.py         # persists per-call token counts
+    metrics.py             # Prometheus collectors: tokens, cost, node latency, Telegram traffic
     config.py               # settings (env)
   SOUL.md            # bot personality / tone
   migrations/        # Alembic
 frontend/
   src/               # React SPA: api, auth, channels, docs, users, logs, usage, welcome, layout
+infra/               # Terraform: EC2, security group, Elastic IP, SSM secrets (see infra/README.md)
+monitoring/          # Prometheus scrape config + alert rules, provisioned Grafana dashboard
 docs/                # architecture diagram + design specs/plans (see below)
 sample-recipes/      # sample recipes for testing ingestion/RAG
-docker-compose.yml
+docker-compose.yml       # local development (builds from source)
+docker-compose.prod.yml  # production stack on EC2 (GHCR images + monitoring)
 ```
+
+## Deployment
+
+The production stack runs on a single EC2 instance provisioned by Terraform.
+See [`infra/README.md`](infra/README.md) for bootstrap, rollback, and routine
+operations. Deploys are manual: run the `Deploy` workflow from the Actions tab.
+
+The backend exports Prometheus metrics at `/metrics` — token counts, estimated
+cost per model, per-node agent latency, retrieved chunk counts, and Telegram
+traffic — scraped alongside host and container metrics and rendered by a
+provisioned Grafana dashboard on port 3000. The endpoint is unauthenticated but
+not published outside the Docker network.
 
 ## Running the project
 
