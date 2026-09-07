@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.agent.clients import get_or_create_collection
 from app.agent.state import AgentState
 from app.db.models import Favourite, Message
+from app.metrics import RETRIEVE_CHUNKS
 from app.retry import retry_once
 from app.token_usage import log_token_usage
 
@@ -164,10 +165,12 @@ def retrieve(
         # agent turn.
         logger.exception("retrieval failed for user_id=%s", state.user_id)
         state.retrieved_chunks = []
+        RETRIEVE_CHUNKS.observe(0)
         return state
 
     merged = sorted(best_scores, key=best_scores.get, reverse=True)
     state.retrieved_chunks = rerank(state.incoming_text, merged, openai_client, db, state.user_id)[:final_k]
+    RETRIEVE_CHUNKS.observe(len(state.retrieved_chunks))
     return state
 
 

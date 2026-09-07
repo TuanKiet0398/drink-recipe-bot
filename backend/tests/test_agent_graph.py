@@ -37,3 +37,51 @@ def test_run_agent_produces_a_reply(db_session, channel_id):
 
     assert result.reply == "Try ceremonial grade!"
     assert seen == ["Try ceremonial grade!"]
+
+
+def test_graph_nodes_record_duration(db_session, monkeypatch):
+    from prometheus_client import REGISTRY
+
+    from app.agent import graph as graph_module
+    from app.agent.state import AgentState
+
+    def _fake_node(state, *args, **kwargs):
+        return state
+
+    monkeypatch.setattr(graph_module, "fetch_history", _fake_node)
+    monkeypatch.setattr(graph_module, "retrieve", _fake_node)
+    monkeypatch.setattr(graph_module, "generate", _fake_node)
+
+    labels = {"node": "retrieve"}
+    before = REGISTRY.get_sample_value("agent_node_duration_seconds_count", labels) or 0.0
+
+    graph_module.run_agent(
+        AgentState(user_id=1, chat_id="1", incoming_text="hi"),
+        db=db_session,
+        chroma_client=None,
+        openai_client=None,
+    )
+
+    after = REGISTRY.get_sample_value("agent_node_duration_seconds_count", labels) or 0.0
+    assert after - before == 1
+
+
+def test_timed_wrapper_records_duration_even_when_the_node_raises():
+    from prometheus_client import REGISTRY
+
+    from app.agent.graph import _timed
+
+    labels = {"node": "exploding"}
+    before = REGISTRY.get_sample_value("agent_node_duration_seconds_count", labels) or 0.0
+
+    def _boom(state):
+        raise RuntimeError("node failed")
+
+    wrapped = _timed("exploding", _boom)
+    try:
+        wrapped({})
+    except RuntimeError:
+        pass
+
+    after = REGISTRY.get_sample_value("agent_node_duration_seconds_count", labels) or 0.0
+    assert after - before == 1
