@@ -90,7 +90,7 @@ keep using one client for both purposes by accident.
 This split is necessary, not cosmetic: today one client serves both roles.
 `retrieve()` uses it for `_embed` and for `rewrite_query`/`rerank`
 (`nodes.py`), and `admin_docs.py` passes the same client to `chunk_document`
-(chat) and `embed_and_store` (embeddings).
+(chat) and `embed_and_upsert` (embeddings).
 
 `REWRITE_MODEL`, `RERANK_MODEL`, and `CHUNK_MODEL` are deleted. `EMBEDDING_MODEL`
 stays.
@@ -106,7 +106,8 @@ stays.
 | `extract_favourite` | `(state, db, openai_client, model="gpt-4o-mini")` | `(state, db, chat_client, model)` |
 | `build_graph` / `run_agent` | `(db, chroma_client, openai_client, on_delta)` | `(db, chroma_client, chat_client, embedding_client, chat_model, on_delta)` |
 | `chunk_document` | `(text, filename, openai_client, db, user_id)` | `(text, filename, chat_client, chat_model, db, user_id)` |
-| `embed_and_store` | `(..., openai_client, ...)` | `(..., embedding_client, ...)` |
+| `_chunk_via_llm` | `(text, filename, openai_client, db, user_id)` | `(text, filename, chat_client, chat_model, db, user_id)` |
+| `embed_and_upsert` | `(..., openai_client, ...)` | `(..., embedding_client, ...)` |
 
 Dropping the `model="gpt-4o-mini"` defaults is deliberate: the model must always
 come from configuration, never silently from a constant.
@@ -258,7 +259,7 @@ exercises the whole path.
 
 ## Risks
 
-- **The signature change is broad.** Nine functions across three modules, plus
+- **The signature change is broad.** Ten functions across three modules, plus
   three call sites.
   Mitigated by doing it as its own step, with the existing suite as the net, and
   by adding no behaviour in that step.
