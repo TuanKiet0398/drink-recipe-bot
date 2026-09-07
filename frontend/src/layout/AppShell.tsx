@@ -36,6 +36,9 @@ export function AppShell() {
           <NavLink to="/panel/channels" className={linkClass}>
             Channels
           </NavLink>
+          <NavLink to="/panel/settings" className={linkClass}>
+            Settings
+          </NavLink>
         </nav>
         <button
           onClick={logout}

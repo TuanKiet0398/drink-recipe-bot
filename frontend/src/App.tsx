@@ -10,6 +10,7 @@ import { AuditLogPage } from "./logs/AuditLogPage";
 import { UsagePage } from "./usage/UsagePage";
 import { WelcomePage } from "./welcome/WelcomePage";
 import { ChannelsPage } from "./channels/ChannelsPage";
+import { SettingsPage } from "./settings/SettingsPage";
 
 export function App() {
   return (
@@ -33,6 +34,7 @@ export function App() {
             <Route path="logs/audit" element={<AuditLogPage />} />
             <Route path="usage" element={<UsagePage />} />
             <Route path="channels" element={<ChannelsPage />} />
+            <Route path="settings" element={<SettingsPage />} />
           </Route>
         </Routes>
       </AuthProvider>
