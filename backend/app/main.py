@@ -10,6 +10,7 @@ from app.db.base import SessionLocal
 from app.routers import (
     admin_channels,
     admin_docs,
+    admin_llm_settings,
     admin_logs,
     admin_usage,
     admin_users,
@@ -48,6 +49,7 @@ app.include_router(admin_docs.router)
 app.include_router(admin_users.router)
 app.include_router(admin_users.login_router)
 app.include_router(admin_logs.router)
+app.include_router(admin_llm_settings.router)
 app.include_router(admin_usage.router)
 app.include_router(metrics.router)
 
