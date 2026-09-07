@@ -87,8 +87,7 @@ def embed_and_upsert(
 
     texts = [chunk.as_text() for chunk in chunks]
     embeddings = [
-        openai_client.embeddings.create(model=EMBEDDING_MODEL, input=text).data[0].embedding
-        for text in texts
+        openai_client.embeddings.create(model=EMBEDDING_MODEL, input=text).data[0].embedding for text in texts
     ]
     ids = [str(uuid.uuid4()) for _ in chunks]
     metadatas = [{"filename": filename, "document_id": document_id} for _ in chunks]

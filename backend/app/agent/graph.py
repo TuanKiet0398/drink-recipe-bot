@@ -1,4 +1,4 @@
-from typing import Callable
+from collections.abc import Callable
 
 from langgraph.graph import END, StateGraph
 from sqlalchemy.orm import Session
@@ -27,7 +27,9 @@ def build_graph(db: Session, chroma_client, openai_client, on_delta: Callable[[s
 
     graph.add_node("fetch_history", _timed("fetch_history", lambda s: fetch_history(s, db)))
     graph.add_node("retrieve", _timed("retrieve", lambda s: retrieve(s, db, chroma_client, openai_client)))
-    graph.add_node("generate", _timed("generate", lambda s: generate(s, db, openai_client, on_delta=on_delta)))
+    graph.add_node(
+        "generate", _timed("generate", lambda s: generate(s, db, openai_client, on_delta=on_delta))
+    )
 
     graph.set_entry_point("fetch_history")
     graph.add_edge("fetch_history", "retrieve")

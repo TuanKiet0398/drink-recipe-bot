@@ -42,7 +42,9 @@ async def test_get_me_returns_bot_info_for_a_valid_token():
 
     with respx.mock:
         respx.post("https://api.telegram.org/botTEST_TOKEN/getMe").mock(
-            return_value=httpx.Response(200, json={"ok": True, "result": {"id": 1, "username": "my_shop_bot"}})
+            return_value=httpx.Response(
+                200, json={"ok": True, "result": {"id": 1, "username": "my_shop_bot"}}
+            )
         )
 
         info = await get_me("TEST_TOKEN")

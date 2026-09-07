@@ -31,13 +31,7 @@ def usage_list(
     db: Session = Depends(get_db),
     admin_user: str = Depends(require_admin),
 ):
-    rows = (
-        db.query(TokenUsage)
-        .order_by(TokenUsage.created_at.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
+    rows = db.query(TokenUsage).order_by(TokenUsage.created_at.desc()).offset(offset).limit(limit).all()
     return [
         {
             "id": r.id,

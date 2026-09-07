@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
@@ -29,7 +29,7 @@ def log_token_usage(db: Session, user_id: int | None, call_type: str, model: str
                 prompt_tokens=int(usage.prompt_tokens),
                 completion_tokens=int(completion_tokens) if completion_tokens is not None else None,
                 total_tokens=int(usage.total_tokens),
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
             )
         )
         db.commit()

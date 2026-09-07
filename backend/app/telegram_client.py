@@ -18,9 +18,7 @@ async def send_message(bot_token: str, chat_id: str, text: str) -> int | None:
 async def edit_message_text(bot_token: str, chat_id: str, message_id: int, text: str) -> None:
     url = f"https://api.telegram.org/bot{bot_token}/editMessageText"
     async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.post(
-            url, json={"chat_id": chat_id, "message_id": message_id, "text": text}
-        )
+        response = await client.post(url, json={"chat_id": chat_id, "message_id": message_id, "text": text})
     if response.status_code >= 400:
         # Telegram returns 400 for a no-op edit (identical text) — this is
         # expected when our throttling coincides with the model not having

@@ -38,7 +38,9 @@ async def run_poller(channel_id: int, bot_token: str) -> None:
                 await _handle_update(channel_id, bot_token, update)
             except Exception:
                 logger.exception(
-                    "Failed to process Telegram update %s for channel_id=%s", update.get("update_id"), channel_id
+                    "Failed to process Telegram update %s for channel_id=%s",
+                    update.get("update_id"),
+                    channel_id,
                 )
 
 

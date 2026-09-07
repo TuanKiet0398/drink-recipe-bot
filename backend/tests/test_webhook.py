@@ -9,15 +9,15 @@ from app.routers.webhook import THINKING_PLACEHOLDER, process_telegram_message
 
 @pytest.mark.asyncio
 async def test_process_message_creates_user_stores_message_and_replies(db_session, channel_id):
-    with patch("app.routers.webhook.run_agent") as mock_run_agent, patch(
-        "app.routers.webhook.send_message", new_callable=AsyncMock
-    ) as mock_send, patch(
-        "app.routers.webhook.edit_message_text", new_callable=AsyncMock
-    ) as mock_edit, patch(
-        "app.routers.webhook.send_chat_action", new_callable=AsyncMock
-    ) as mock_typing, patch("app.routers.webhook.extract_favourite"), patch(
-        "app.routers.webhook.get_chroma_client", return_value=MagicMock()
-    ), patch("app.routers.webhook.get_openai_client", return_value=MagicMock()):
+    with (
+        patch("app.routers.webhook.run_agent") as mock_run_agent,
+        patch("app.routers.webhook.send_message", new_callable=AsyncMock) as mock_send,
+        patch("app.routers.webhook.edit_message_text", new_callable=AsyncMock) as mock_edit,
+        patch("app.routers.webhook.send_chat_action", new_callable=AsyncMock) as mock_typing,
+        patch("app.routers.webhook.extract_favourite"),
+        patch("app.routers.webhook.get_chroma_client", return_value=MagicMock()),
+        patch("app.routers.webhook.get_openai_client", return_value=MagicMock()),
+    ):
         mock_send.return_value = 555
 
         def fake_run_agent(state, **kwargs):
@@ -39,15 +39,15 @@ async def test_process_message_creates_user_stores_message_and_replies(db_sessio
 
 @pytest.mark.asyncio
 async def test_process_message_delivers_streamed_reply_progressively(db_session, channel_id):
-    with patch("app.routers.webhook.run_agent") as mock_run_agent, patch(
-        "app.routers.webhook.send_message", new_callable=AsyncMock
-    ) as mock_send, patch(
-        "app.routers.webhook.edit_message_text", new_callable=AsyncMock
-    ) as mock_edit, patch(
-        "app.routers.webhook.send_chat_action", new_callable=AsyncMock
-    ), patch("app.routers.webhook.extract_favourite"), patch(
-        "app.routers.webhook.get_chroma_client", return_value=MagicMock()
-    ), patch("app.routers.webhook.get_openai_client", return_value=MagicMock()):
+    with (
+        patch("app.routers.webhook.run_agent") as mock_run_agent,
+        patch("app.routers.webhook.send_message", new_callable=AsyncMock) as mock_send,
+        patch("app.routers.webhook.edit_message_text", new_callable=AsyncMock) as mock_edit,
+        patch("app.routers.webhook.send_chat_action", new_callable=AsyncMock),
+        patch("app.routers.webhook.extract_favourite"),
+        patch("app.routers.webhook.get_chroma_client", return_value=MagicMock()),
+        patch("app.routers.webhook.get_openai_client", return_value=MagicMock()),
+    ):
         mock_send.return_value = 999
 
         def fake_run_agent(state, **kwargs):
@@ -72,8 +72,9 @@ async def test_process_message_delivers_streamed_reply_progressively(db_session,
 async def test_keepalive_typing_refreshes_on_each_interval_tick():
     from app.routers.webhook import _keepalive_typing
 
-    with patch("app.routers.webhook.send_chat_action", new_callable=AsyncMock) as mock_typing, patch(
-        "app.routers.webhook._TYPING_KEEPALIVE_INTERVAL", 0.02
+    with (
+        patch("app.routers.webhook.send_chat_action", new_callable=AsyncMock) as mock_typing,
+        patch("app.routers.webhook._TYPING_KEEPALIVE_INTERVAL", 0.02),
     ):
         task = asyncio.create_task(_keepalive_typing("TEST_TOKEN", chat_id="444", user_id=1))
         await asyncio.sleep(0.09)
@@ -91,9 +92,12 @@ async def test_keepalive_typing_refreshes_on_each_interval_tick():
 async def test_keepalive_typing_survives_a_send_chat_action_failure():
     from app.routers.webhook import _keepalive_typing
 
-    with patch(
-        "app.routers.webhook.send_chat_action", new_callable=AsyncMock, side_effect=RuntimeError("boom")
-    ) as mock_typing, patch("app.routers.webhook._TYPING_KEEPALIVE_INTERVAL", 0.02):
+    with (
+        patch(
+            "app.routers.webhook.send_chat_action", new_callable=AsyncMock, side_effect=RuntimeError("boom")
+        ) as mock_typing,
+        patch("app.routers.webhook._TYPING_KEEPALIVE_INTERVAL", 0.02),
+    ):
         task = asyncio.create_task(_keepalive_typing("TEST_TOKEN", chat_id="444", user_id=1))
         await asyncio.sleep(0.07)
         task.cancel()
@@ -111,9 +115,10 @@ async def test_process_message_skips_blocked_user(db_session, channel_id):
     db_session.add(blocked)
     db_session.commit()
 
-    with patch("app.routers.webhook.run_agent") as mock_run_agent, patch(
-        "app.routers.webhook.send_message", new_callable=AsyncMock
-    ) as mock_send:
+    with (
+        patch("app.routers.webhook.run_agent") as mock_run_agent,
+        patch("app.routers.webhook.send_message", new_callable=AsyncMock) as mock_send,
+    ):
         await process_telegram_message(channel_id, "TEST_TOKEN", "222", "222", "hello", db_session)
 
     mock_run_agent.assert_not_called()
@@ -122,11 +127,12 @@ async def test_process_message_skips_blocked_user(db_session, channel_id):
 
 @pytest.mark.asyncio
 async def test_process_message_swallows_send_message_failures(db_session, channel_id):
-    with patch("app.routers.webhook.run_agent") as mock_run_agent, patch(
-        "app.routers.webhook.send_message", new_callable=AsyncMock
-    ) as mock_send, patch(
-        "app.routers.webhook.send_chat_action", new_callable=AsyncMock
-    ), patch("app.routers.webhook.extract_favourite"):
+    with (
+        patch("app.routers.webhook.run_agent") as mock_run_agent,
+        patch("app.routers.webhook.send_message", new_callable=AsyncMock) as mock_send,
+        patch("app.routers.webhook.send_chat_action", new_callable=AsyncMock),
+        patch("app.routers.webhook.extract_favourite"),
+    ):
 
         def fake_run_agent(state, **kwargs):
             state.reply = "Welcome!"
@@ -152,13 +158,13 @@ async def test_process_message_background_favourite_extraction_actually_runs(db_
         MagicMock(message=MagicMock(content='{"drink_name": "sencha"}'))
     ]
 
-    with patch("app.routers.webhook.run_agent") as mock_run_agent, patch(
-        "app.routers.webhook.send_message", new_callable=AsyncMock
-    ), patch(
-        "app.routers.webhook.send_chat_action", new_callable=AsyncMock
-    ), patch(
-        "app.routers.webhook.get_openai_client", return_value=fake_openai
-    ), patch("app.db.base.SessionLocal", TestSessionLocal):
+    with (
+        patch("app.routers.webhook.run_agent") as mock_run_agent,
+        patch("app.routers.webhook.send_message", new_callable=AsyncMock),
+        patch("app.routers.webhook.send_chat_action", new_callable=AsyncMock),
+        patch("app.routers.webhook.get_openai_client", return_value=fake_openai),
+        patch("app.db.base.SessionLocal", TestSessionLocal),
+    ):
 
         def fake_run_agent(state, **kwargs):
             state.reply = "Welcome!"
@@ -166,7 +172,9 @@ async def test_process_message_background_favourite_extraction_actually_runs(db_
 
         mock_run_agent.side_effect = fake_run_agent
 
-        await process_telegram_message(channel_id, "TEST_TOKEN", "777", "777", "I really love sencha the most", db_session)
+        await process_telegram_message(
+            channel_id, "TEST_TOKEN", "777", "777", "I really love sencha the most", db_session
+        )
 
         from app.routers.webhook import _background_tasks
 

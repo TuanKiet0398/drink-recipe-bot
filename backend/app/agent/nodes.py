@@ -1,8 +1,8 @@
 import json
 import logging
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
-from typing import Callable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -47,11 +47,7 @@ def fetch_history(state: AgentState, db: Session, limit: int = 10) -> AgentState
     rows = list(reversed(rows))
     state.history = [{"role": m.role, "content": m.content} for m in rows]
 
-    favourite_rows = (
-        db.execute(select(Favourite).where(Favourite.user_id == state.user_id))
-        .scalars()
-        .all()
-    )
+    favourite_rows = db.execute(select(Favourite).where(Favourite.user_id == state.user_id)).scalars().all()
     state.favourites = [f.drink_name for f in favourite_rows]
     return state
 
@@ -155,7 +151,7 @@ def retrieve(
             result = coll.query(query_embeddings=[embedding], n_results=retrieval_k)
             texts = result["documents"][0] if result["documents"] else []
             distances = result["distances"][0] if result["distances"] else []
-            for text, distance in zip(texts, distances):
+            for text, distance in zip(texts, distances, strict=False):
                 score = 1 - distance
                 if score >= score_threshold:
                     best_scores[text] = max(best_scores.get(text, score), score)

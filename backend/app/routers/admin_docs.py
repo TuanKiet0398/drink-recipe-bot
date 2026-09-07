@@ -48,7 +48,9 @@ async def upload_doc(
         openai_client=openai_client,
     )
 
-    log_admin_action(db, action="upload_doc", target=filename, ip=request.client.host if request.client else "")
+    log_admin_action(
+        db, action="upload_doc", target=filename, ip=request.client.host if request.client else ""
+    )
 
     return {"id": doc.id, "filename": doc.filename, "chunk_count": doc.chunk_count}
 
@@ -57,7 +59,12 @@ async def upload_doc(
 def list_docs(db: Session = Depends(get_db), admin_user: str = Depends(require_admin)):
     docs = db.query(Document).order_by(Document.uploaded_at.desc()).all()
     return [
-        {"id": d.id, "filename": d.filename, "chunk_count": d.chunk_count, "uploaded_at": d.uploaded_at.isoformat()}
+        {
+            "id": d.id,
+            "filename": d.filename,
+            "chunk_count": d.chunk_count,
+            "uploaded_at": d.uploaded_at.isoformat(),
+        }
         for d in docs
     ]
 
@@ -79,4 +86,6 @@ def delete_doc(
     db.delete(doc)
     db.commit()
 
-    log_admin_action(db, action="delete_doc", target=doc.filename, ip=request.client.host if request.client else "")
+    log_admin_action(
+        db, action="delete_doc", target=doc.filename, ip=request.client.host if request.client else ""
+    )

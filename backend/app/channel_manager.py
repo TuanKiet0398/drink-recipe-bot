@@ -24,9 +24,7 @@ class ChannelManager:
         self._tokens: dict[int, str] = {}
 
     async def sync(self, db: Session) -> None:
-        active_channels = (
-            db.query(Channel).filter_by(is_active=True, channel_type="telegram").all()
-        )
+        active_channels = db.query(Channel).filter_by(is_active=True, channel_type="telegram").all()
         active_ids = {c.id for c in active_channels}
 
         for channel_id in list(self._tasks):

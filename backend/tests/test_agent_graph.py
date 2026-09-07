@@ -23,7 +23,9 @@ def test_run_agent_produces_a_reply(db_session, channel_id):
     final_chunk.choices = []
     final_chunk.usage = None
     fake_openai.chat.completions.create.side_effect = [
-        MagicMock(choices=[MagicMock(message=MagicMock(content="recommend a matcha"))], usage=None),  # rewrite_query
+        MagicMock(
+            choices=[MagicMock(message=MagicMock(content="recommend a matcha"))], usage=None
+        ),  # rewrite_query
         [stream_chunk, final_chunk],  # generate()'s stream
     ]
 
@@ -33,7 +35,9 @@ def test_run_agent_produces_a_reply(db_session, channel_id):
     fake_chroma.get_or_create_collection.return_value = fake_collection
 
     seen: list[str] = []
-    result = run_agent(state, db=db_session, chroma_client=fake_chroma, openai_client=fake_openai, on_delta=seen.append)
+    result = run_agent(
+        state, db=db_session, chroma_client=fake_chroma, openai_client=fake_openai, on_delta=seen.append
+    )
 
     assert result.reply == "Try ceremonial grade!"
     assert seen == ["Try ceremonial grade!"]

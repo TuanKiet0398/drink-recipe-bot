@@ -6,7 +6,10 @@ from app.db.models import Channel
 
 
 def test_create_channel_requires_auth(client):
-    response = client.post("/admin/channels", json={"key": "a", "display_name": "A", "channel_type": "telegram", "bot_token": "t"})
+    response = client.post(
+        "/admin/channels",
+        json={"key": "a", "display_name": "A", "channel_type": "telegram", "bot_token": "t"},
+    )
     assert response.status_code == 401
 
 
@@ -14,7 +17,12 @@ def test_create_channel_encrypts_the_token_and_never_returns_it(client, db_sessi
     with patch("app.routers.admin_channels.channel_manager.sync", new_callable=AsyncMock) as mock_sync:
         response = client.post(
             "/admin/channels",
-            json={"key": "my-bot", "display_name": "My Bot", "channel_type": "telegram", "bot_token": "secret-token"},
+            json={
+                "key": "my-bot",
+                "display_name": "My Bot",
+                "channel_type": "telegram",
+                "bot_token": "secret-token",
+            },
             auth=("admin", "admin"),
         )
 
@@ -52,7 +60,9 @@ def test_list_channels_never_includes_credentials(client, db_session, channel_id
 
 def test_update_channel_toggles_active_and_syncs(client, db_session, channel_id):
     with patch("app.routers.admin_channels.channel_manager.sync", new_callable=AsyncMock) as mock_sync:
-        response = client.patch(f"/admin/channels/{channel_id}", json={"is_active": False}, auth=("admin", "admin"))
+        response = client.patch(
+            f"/admin/channels/{channel_id}", json={"is_active": False}, auth=("admin", "admin")
+        )
 
     assert response.status_code == 200
     assert response.json()["is_active"] is False
@@ -61,7 +71,9 @@ def test_update_channel_toggles_active_and_syncs(client, db_session, channel_id)
 
 def test_update_channel_can_rotate_the_bot_token(client, db_session, channel_id):
     with patch("app.routers.admin_channels.channel_manager.sync", new_callable=AsyncMock):
-        client.patch(f"/admin/channels/{channel_id}", json={"bot_token": "new-token"}, auth=("admin", "admin"))
+        client.patch(
+            f"/admin/channels/{channel_id}", json={"bot_token": "new-token"}, auth=("admin", "admin")
+        )
 
     channel = db_session.query(Channel).filter_by(id=channel_id).one()
     assert json.loads(decrypt(channel.encrypted_credentials))["bot_token"] == "new-token"
@@ -101,7 +113,11 @@ def test_force_delete_channel_cascades_users_messages_and_favourites(client, db_
     user_id = user.id
     db_session.add(Message(user_id=user_id, role="user", content="hi"))
     db_session.add(Favourite(user_id=user_id, drink_name="matcha"))
-    db_session.add(TokenUsage(user_id=user_id, call_type="generate", model="gpt-4o-mini", prompt_tokens=1, total_tokens=1))
+    db_session.add(
+        TokenUsage(
+            user_id=user_id, call_type="generate", model="gpt-4o-mini", prompt_tokens=1, total_tokens=1
+        )
+    )
     db_session.commit()
 
     with patch("app.routers.admin_channels.channel_manager.sync", new_callable=AsyncMock) as mock_sync:

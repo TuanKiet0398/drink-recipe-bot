@@ -59,7 +59,12 @@ def block_user(
     user = _get_user_or_404(db, user_id)
     user.blocked = True
     db.commit()
-    log_admin_action(db, action="block_user", target=user.telegram_user_id, ip=request.client.host if request.client else "")
+    log_admin_action(
+        db,
+        action="block_user",
+        target=user.telegram_user_id,
+        ip=request.client.host if request.client else "",
+    )
     return {"id": user.id, "blocked": user.blocked}
 
 
@@ -73,5 +78,10 @@ def unblock_user(
     user = _get_user_or_404(db, user_id)
     user.blocked = False
     db.commit()
-    log_admin_action(db, action="unblock_user", target=user.telegram_user_id, ip=request.client.host if request.client else "")
+    log_admin_action(
+        db,
+        action="unblock_user",
+        target=user.telegram_user_id,
+        ip=request.client.host if request.client else "",
+    )
     return {"id": user.id, "blocked": user.blocked}

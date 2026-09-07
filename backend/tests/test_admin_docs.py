@@ -13,9 +13,10 @@ def test_upload_doc_requires_auth(client):
 def test_upload_doc_chunks_embeds_and_records_metadata(client, db_session):
     fake_chunks = [Chunk(headline="H", summary="S", original_text="Steep sencha at 70C for 60 seconds.")]
 
-    with patch("app.routers.admin_docs.chunk_document", return_value=fake_chunks) as mock_chunk, patch(
-        "app.routers.admin_docs.embed_and_upsert"
-    ) as mock_embed:
+    with (
+        patch("app.routers.admin_docs.chunk_document", return_value=fake_chunks) as mock_chunk,
+        patch("app.routers.admin_docs.embed_and_upsert") as mock_embed,
+    ):
         response = client.post(
             "/admin/docs",
             files={"file": ("sencha_recipe.txt", BytesIO(b"Steep sencha at 70C for 60 seconds."))},
@@ -56,8 +57,12 @@ def test_upload_doc_rejects_oversized_file(client, db_session):
 
 
 def test_upload_doc_accepts_md_file(client, db_session):
-    with patch("app.routers.admin_docs.chunk_document", return_value=[Chunk(headline="H", summary="S", original_text="# Matcha notes")]), patch(
-        "app.routers.admin_docs.embed_and_upsert"
+    with (
+        patch(
+            "app.routers.admin_docs.chunk_document",
+            return_value=[Chunk(headline="H", summary="S", original_text="# Matcha notes")],
+        ),
+        patch("app.routers.admin_docs.embed_and_upsert"),
     ):
         response = client.post(
             "/admin/docs",
@@ -121,8 +126,12 @@ def test_delete_doc_returns_404_when_missing(client, db_session):
 
 
 def test_upload_doc_writes_audit_log(client, db_session):
-    with patch("app.routers.admin_docs.chunk_document", return_value=[Chunk(headline="H", summary="S", original_text="content")]), patch(
-        "app.routers.admin_docs.embed_and_upsert"
+    with (
+        patch(
+            "app.routers.admin_docs.chunk_document",
+            return_value=[Chunk(headline="H", summary="S", original_text="content")],
+        ),
+        patch("app.routers.admin_docs.embed_and_upsert"),
     ):
         client.post(
             "/admin/docs",

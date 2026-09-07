@@ -1,13 +1,13 @@
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from app.agent import nodes
-from app.agent.nodes import fetch_history, retrieve, rerank, rewrite_query, generate, extract_favourite
+from app.agent.nodes import extract_favourite, fetch_history, generate, rerank, retrieve, rewrite_query
 from app.agent.state import AgentState
-from app.db.models import User, Message, Favourite
+from app.db.models import Favourite, Message, User
 from app.retry import retry_once
 
 
@@ -53,7 +53,7 @@ def test_fetch_history_returns_last_n_messages_in_chronological_order(db_session
     db_session.commit()
     db_session.refresh(user)
 
-    base = datetime.now(timezone.utc)
+    base = datetime.now(UTC)
     for i in range(15):
         db_session.add(
             Message(

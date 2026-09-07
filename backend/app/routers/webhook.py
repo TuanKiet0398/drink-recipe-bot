@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import time
-from typing import Callable
 
 from sqlalchemy.orm import Session
 
@@ -33,11 +32,7 @@ _STREAM_EDIT_MIN_INTERVAL = 1.2
 
 
 def _get_or_create_user(db: Session, channel_id: int, telegram_user_id: str) -> User:
-    user = (
-        db.query(User)
-        .filter_by(channel_id=channel_id, telegram_user_id=telegram_user_id)
-        .one_or_none()
-    )
+    user = db.query(User).filter_by(channel_id=channel_id, telegram_user_id=telegram_user_id).one_or_none()
     if user is None:
         user = User(channel_id=channel_id, telegram_user_id=telegram_user_id)
         db.add(user)

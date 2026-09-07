@@ -24,9 +24,7 @@ def test_retry_once_counts_a_retry_when_the_first_attempt_fails():
 
     before = _sample("llm_retries_total", {"call_type": "embedding"})
 
-    result = retry_once(
-        _flaky, delay_seconds=0, call_type="embedding", model="text-embedding-3-small"
-    )
+    result = retry_once(_flaky, delay_seconds=0, call_type="embedding", model="text-embedding-3-small")
 
     assert result == "recovered"
     assert _sample("llm_retries_total", {"call_type": "embedding"}) - before == 1

@@ -39,7 +39,9 @@ def test_chunk_document_parses_bilingual_llm_response_into_chunks(db_session):
     ]
     fake_openai.chat.completions.create.return_value.usage = None
 
-    chunks = chunk_document("Whisk 2g matcha with steamed milk.", "matcha-latte.txt", openai_client=fake_openai, db=db_session)
+    chunks = chunk_document(
+        "Whisk 2g matcha with steamed milk.", "matcha-latte.txt", openai_client=fake_openai, db=db_session
+    )
 
     assert len(chunks) == 1
     assert chunks[0].original_text == "Whisk 2g matcha with steamed milk."
@@ -51,7 +53,11 @@ def test_chunk_document_parses_bilingual_llm_response_into_chunks(db_session):
 def test_chunk_document_prompt_asks_for_bilingual_headline_and_summary(db_session):
     fake_openai = MagicMock()
     fake_openai.chat.completions.create.return_value.choices = [
-        MagicMock(message=MagicMock(content=json.dumps({"chunks": [{"headline": "H", "summary": "S", "original_text": "T"}]})))
+        MagicMock(
+            message=MagicMock(
+                content=json.dumps({"chunks": [{"headline": "H", "summary": "S", "original_text": "T"}]})
+            )
+        )
     ]
     fake_openai.chat.completions.create.return_value.usage = None
 
@@ -95,7 +101,9 @@ def test_embed_and_upsert_writes_chunk_text_and_metadata_to_chroma():
     fake_chroma.get_or_create_collection.return_value = fake_collection
 
     chunk = Chunk(headline="H", summary="S", original_text="T")
-    embed_and_upsert([chunk], filename="a.txt", document_id=42, chroma_client=fake_chroma, openai_client=fake_openai)
+    embed_and_upsert(
+        [chunk], filename="a.txt", document_id=42, chroma_client=fake_chroma, openai_client=fake_openai
+    )
 
     fake_collection.upsert.assert_called_once()
     kwargs = fake_collection.upsert.call_args.kwargs
@@ -113,7 +121,9 @@ def test_embed_and_upsert_round_trips_through_real_chroma(tmp_path):
     real_chroma = PersistentClient(path=str(tmp_path))
 
     chunk = Chunk(headline="Matcha Latte", summary="A latte.", original_text="Whisk matcha with milk.")
-    embed_and_upsert([chunk], filename="matcha.txt", document_id=1, chroma_client=real_chroma, openai_client=fake_openai)
+    embed_and_upsert(
+        [chunk], filename="matcha.txt", document_id=1, chroma_client=real_chroma, openai_client=fake_openai
+    )
 
     collection = get_or_create_collection(real_chroma, "matcha_knowledge")
     result = collection.query(query_embeddings=[[1.0, 0.0]], n_results=1)

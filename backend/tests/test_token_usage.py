@@ -50,7 +50,9 @@ def test_log_token_usage_writes_a_row_for_a_chat_call(db_session):
 def test_log_token_usage_writes_null_completion_tokens_for_embedding_call(db_session):
     usage = _FakeUsage(prompt_tokens=20, total_tokens=20, completion_tokens=None)
 
-    log_token_usage(db_session, user_id=None, call_type="embedding", model="text-embedding-3-small", usage=usage)
+    log_token_usage(
+        db_session, user_id=None, call_type="embedding", model="text-embedding-3-small", usage=usage
+    )
 
     row = db_session.query(TokenUsage).one()
     assert row.user_id is None
@@ -72,7 +74,9 @@ def test_log_token_usage_swallows_a_malformed_usage_object_and_leaves_session_us
     assert db_session.query(TokenUsage).count() == 0
     # The session must still be usable afterward — a prior failed flush
     # left uncommitted/rolled-back, not the session itself broken.
-    db_session.add(TokenUsage(user_id=1, call_type="generate", model="gpt-4o-mini", prompt_tokens=1, total_tokens=1))
+    db_session.add(
+        TokenUsage(user_id=1, call_type="generate", model="gpt-4o-mini", prompt_tokens=1, total_tokens=1)
+    )
     db_session.commit()
     assert db_session.query(TokenUsage).count() == 1
 

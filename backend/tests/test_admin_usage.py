@@ -10,8 +10,21 @@ def test_usage_summary_requires_auth(client):
 
 
 def test_usage_list_returns_rows_newest_first(client, db_session):
-    db_session.add(TokenUsage(user_id=1, call_type="generate", model="gpt-4o-mini", prompt_tokens=10, completion_tokens=5, total_tokens=15))
-    db_session.add(TokenUsage(user_id=1, call_type="embedding", model="text-embedding-3-small", prompt_tokens=3, total_tokens=3))
+    db_session.add(
+        TokenUsage(
+            user_id=1,
+            call_type="generate",
+            model="gpt-4o-mini",
+            prompt_tokens=10,
+            completion_tokens=5,
+            total_tokens=15,
+        )
+    )
+    db_session.add(
+        TokenUsage(
+            user_id=1, call_type="embedding", model="text-embedding-3-small", prompt_tokens=3, total_tokens=3
+        )
+    )
     db_session.commit()
 
     response = client.get("/admin/usage", auth=("admin", "admin"))
@@ -35,8 +48,23 @@ def test_usage_list_respects_limit_and_offset(client, db_session):
 
 
 def test_usage_summary_aggregates_totals_and_cost_by_model(client, db_session):
-    db_session.add(TokenUsage(call_type="generate", model="gpt-4o-mini", prompt_tokens=1_000_000, completion_tokens=0, total_tokens=1_000_000))
-    db_session.add(TokenUsage(call_type="embedding", model="text-embedding-3-small", prompt_tokens=1_000_000, total_tokens=1_000_000))
+    db_session.add(
+        TokenUsage(
+            call_type="generate",
+            model="gpt-4o-mini",
+            prompt_tokens=1_000_000,
+            completion_tokens=0,
+            total_tokens=1_000_000,
+        )
+    )
+    db_session.add(
+        TokenUsage(
+            call_type="embedding",
+            model="text-embedding-3-small",
+            prompt_tokens=1_000_000,
+            total_tokens=1_000_000,
+        )
+    )
     db_session.commit()
 
     response = client.get("/admin/usage/summary", auth=("admin", "admin"))
@@ -55,7 +83,11 @@ def test_usage_summary_aggregates_totals_and_cost_by_model(client, db_session):
 
 
 def test_usage_summary_unknown_model_contributes_zero_cost(client, db_session):
-    db_session.add(TokenUsage(call_type="generate", model="some-future-model", prompt_tokens=1_000_000, total_tokens=1_000_000))
+    db_session.add(
+        TokenUsage(
+            call_type="generate", model="some-future-model", prompt_tokens=1_000_000, total_tokens=1_000_000
+        )
+    )
     db_session.commit()
 
     response = client.get("/admin/usage/summary", auth=("admin", "admin"))
@@ -99,7 +131,9 @@ def test_delete_usage_entry_returns_404_when_missing(client, db_session):
 
 def test_clear_usage(client, db_session):
     db_session.add(TokenUsage(call_type="generate", model="gpt-4o-mini", prompt_tokens=1, total_tokens=1))
-    db_session.add(TokenUsage(call_type="embedding", model="text-embedding-3-small", prompt_tokens=1, total_tokens=1))
+    db_session.add(
+        TokenUsage(call_type="embedding", model="text-embedding-3-small", prompt_tokens=1, total_tokens=1)
+    )
     db_session.commit()
 
     response = client.delete("/admin/usage", auth=("admin", "admin"))

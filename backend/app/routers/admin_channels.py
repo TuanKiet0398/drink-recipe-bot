@@ -73,7 +73,9 @@ async def create_channel(
     db.commit()
     db.refresh(channel)
 
-    log_admin_action(db, action="create_channel", target=channel.key, ip=request.client.host if request.client else "")
+    log_admin_action(
+        db, action="create_channel", target=channel.key, ip=request.client.host if request.client else ""
+    )
     await channel_manager.sync(db)
 
     return _serialize(channel)
@@ -121,7 +123,9 @@ async def update_channel(
     db.commit()
     db.refresh(channel)
 
-    log_admin_action(db, action="update_channel", target=channel.key, ip=request.client.host if request.client else "")
+    log_admin_action(
+        db, action="update_channel", target=channel.key, ip=request.client.host if request.client else ""
+    )
     await channel_manager.sync(db)
 
     return _serialize(channel)
@@ -175,5 +179,7 @@ async def delete_channel(
     db.delete(channel)
     db.commit()
 
-    log_admin_action(db, action="delete_channel", target=key, ip=request.client.host if request.client else "")
+    log_admin_action(
+        db, action="delete_channel", target=key, ip=request.client.host if request.client else ""
+    )
     await channel_manager.sync(db)

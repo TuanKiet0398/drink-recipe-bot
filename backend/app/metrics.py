@@ -57,20 +57,14 @@ LLM_TOKENS = Counter("llm_tokens", "OpenAI tokens consumed", ["model", "call_typ
 LLM_COST_USD = Counter("llm_cost_usd", "Estimated OpenAI spend in USD", ["model", "call_type"])
 LLM_CALLS = Counter("llm_calls", "OpenAI calls by outcome", ["model", "call_type", "outcome"])
 LLM_RETRIES = Counter("llm_retries", "Retried OpenAI calls", ["call_type"])
-AGENT_NODE_DURATION = Histogram(
-    "agent_node_duration_seconds", "Wall time per LangGraph node", ["node"]
-)
+AGENT_NODE_DURATION = Histogram("agent_node_duration_seconds", "Wall time per LangGraph node", ["node"])
 RETRIEVE_CHUNKS = Histogram(
     "retrieve_chunks_returned",
     "Chunks surviving retrieval and reranking",
     buckets=(0, 1, 2, 3, 4, 5, 7, 10),
 )
-TELEGRAM_MESSAGES = Counter(
-    "telegram_messages", "Telegram messages handled", ["channel_id", "direction"]
-)
-TELEGRAM_POLL_ERRORS = Counter(
-    "telegram_poll_errors", "Failed Telegram getUpdates calls", ["channel_id"]
-)
+TELEGRAM_MESSAGES = Counter("telegram_messages", "Telegram messages handled", ["channel_id", "direction"])
+TELEGRAM_POLL_ERRORS = Counter("telegram_poll_errors", "Failed Telegram getUpdates calls", ["channel_id"])
 ACTIVE_CHANNELS = Gauge("active_channels", "Channels with a running poll task")
 
 
@@ -79,9 +73,7 @@ def _warn_unknown_model_once(model: str) -> None:
     logger.warning("No price entry for model=%s; recording zero cost", model)
 
 
-def record_llm_usage(
-    model: str, call_type: str, prompt_tokens: int, completion_tokens: int | None
-) -> None:
+def record_llm_usage(model: str, call_type: str, prompt_tokens: int, completion_tokens: int | None) -> None:
     try:
         prompt = int(prompt_tokens)
         completion = int(completion_tokens) if completion_tokens is not None else 0

@@ -9,7 +9,9 @@ from app.crypto import encrypt
 from app.db.models import Channel
 
 
-def _make_channel(db_session, key: str, bot_token: str, is_active: bool = True, channel_type: str = "telegram") -> Channel:
+def _make_channel(
+    db_session, key: str, bot_token: str, is_active: bool = True, channel_type: str = "telegram"
+) -> Channel:
     channel = Channel(
         key=key,
         display_name=key,

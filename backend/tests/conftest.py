@@ -27,6 +27,7 @@ def _disable_channel_manager(monkeypatch):
     monkeypatch.setattr(channel_manager, "sync", _noop_sync)
     monkeypatch.setattr(channel_manager, "stop_all", _noop_stop_all)
 
+
 TEST_ENGINE = create_engine(
     "sqlite:///:memory:",
     connect_args={"check_same_thread": False},

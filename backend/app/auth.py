@@ -1,5 +1,5 @@
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -44,7 +44,7 @@ def log_admin_action(db: Session, action: str, target: str = "", ip: str = "") -
             action=action,
             target=target,
             ip=ip,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
     )
     db.commit()

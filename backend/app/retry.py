@@ -1,5 +1,6 @@
 import time
-from typing import Callable, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 
 from app.metrics import record_llm_call, record_retry
 
