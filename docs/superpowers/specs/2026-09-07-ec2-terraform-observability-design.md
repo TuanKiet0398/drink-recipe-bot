@@ -75,7 +75,13 @@ infra/
 
 `region`, `instance_type` (default `t3.small`), `root_volume_size_gb` (default 30),
 `allowed_cidr` (the operator's home IP as `x.x.x.x/32`), `ssh_public_key`,
-`ghcr_username`, `ghcr_token`, `daily_cost_alert_usd` (default 5).
+`ghcr_username`, `ghcr_token`, `ghcr_repo`, and the secret values written to SSM
+(`openai_api_key`, `encryption_key`, `admin_username`, `admin_password`,
+`grafana_admin_password`).
+
+The daily cost alert threshold is **not** a Terraform variable. Prometheus does not
+expand environment variables in rule files, so the threshold is written literally in
+`monitoring/alerts.yml` and changed by editing that file.
 
 ### Networking
 
@@ -165,7 +171,7 @@ Alert rules:
 |---|---|
 | `BackendDown` | `up{job="backend"} == 0` for 2m |
 | `HighLLMErrorRate` | error share of `llm_calls_total` above 10% over 5m |
-| `DailyCostExceeded` | 24h increase of `llm_cost_usd_total` above `daily_cost_alert_usd` |
+| `DailyCostExceeded` | 24h increase of `llm_cost_usd_total` above the literal threshold in `alerts.yml` (default $5) |
 | `DiskAlmostFull` | root filesystem free space below 15% |
 | `HighMemory` | host memory usage above 90% for 10m |
 | `TelegramPollFailing` | `telegram_poll_errors_total` increasing for 5m |
@@ -215,7 +221,7 @@ cost panel as an estimate; the authoritative figure is the provider's bill.
 | File | Change |
 |---|---|
 | `app/token_usage.py` | call `record_llm_usage()` after the successful commit; the function must keep never raising |
-| `app/retry.py` | add an optional `call_type` argument (default `"unknown"`); increment `llm_retries_total` and `llm_calls_total{outcome}` |
+| `app/retry.py` | add optional `call_type` and `model` arguments (both defaulting to `"unknown"`, so existing call sites keep working); increment `llm_retries_total` and `llm_calls_total{outcome}` |
 | `app/agent/graph.py` | wrap the three node lambdas in a timing decorator that observes `agent_node_duration_seconds` |
 | `app/agent/nodes.py` | observe `retrieve_chunks_returned` after reranking |
 | `app/channel_manager.py` | set `active_channels` after each `sync()` |
