@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.db.models import TokenUsage
+from app.metrics import record_llm_call, record_llm_usage
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,8 @@ def log_token_usage(db: Session, user_id: int | None, call_type: str, model: str
             )
         )
         db.commit()
+        record_llm_usage(model, call_type, int(usage.prompt_tokens), completion_tokens)
+        record_llm_call(model, call_type, "ok")
     except Exception:
         logger.exception("Failed to log token usage for call_type=%s model=%s", call_type, model)
         db.rollback()

@@ -75,3 +75,55 @@ def test_log_token_usage_swallows_a_malformed_usage_object_and_leaves_session_us
     db_session.add(TokenUsage(user_id=1, call_type="generate", model="gpt-4o-mini", prompt_tokens=1, total_tokens=1))
     db_session.commit()
     assert db_session.query(TokenUsage).count() == 1
+
+
+def test_log_token_usage_records_prometheus_metrics(db_session):
+    from prometheus_client import REGISTRY
+
+    from app.token_usage import log_token_usage
+
+    class _Usage:
+        prompt_tokens = 30
+        completion_tokens = 20
+        total_tokens = 50
+
+    labels = {"model": "gpt-4o-mini", "call_type": "generate", "kind": "prompt"}
+    before = REGISTRY.get_sample_value("llm_tokens_total", labels) or 0.0
+
+    log_token_usage(db_session, None, "generate", "gpt-4o-mini", _Usage())
+
+    after = REGISTRY.get_sample_value("llm_tokens_total", labels) or 0.0
+    assert after - before == 30
+
+
+def test_log_token_usage_records_an_ok_call(db_session):
+    from prometheus_client import REGISTRY
+
+    from app.token_usage import log_token_usage
+
+    class _Usage:
+        prompt_tokens = 1
+        completion_tokens = 1
+        total_tokens = 2
+
+    labels = {"model": "gpt-4o-mini", "call_type": "rerank", "outcome": "ok"}
+    before = REGISTRY.get_sample_value("llm_calls_total", labels) or 0.0
+
+    log_token_usage(db_session, None, "rerank", "gpt-4o-mini", _Usage())
+
+    after = REGISTRY.get_sample_value("llm_calls_total", labels) or 0.0
+    assert after - before == 1
+
+
+def test_log_token_usage_with_none_usage_records_nothing(db_session):
+    from prometheus_client import REGISTRY
+
+    from app.token_usage import log_token_usage
+
+    labels = {"model": "gpt-4o-mini", "call_type": "generate", "kind": "prompt"}
+    before = REGISTRY.get_sample_value("llm_tokens_total", labels) or 0.0
+
+    log_token_usage(db_session, None, "generate", "gpt-4o-mini", None)
+
+    after = REGISTRY.get_sample_value("llm_tokens_total", labels) or 0.0
+    assert after == before
