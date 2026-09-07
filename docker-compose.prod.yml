@@ -12,6 +12,12 @@ services:
       CHROMA_PERSIST_DIR: /app/data/chroma_db
     volumes:
       - backend_data:/app/data
+    # Lets the Settings page reach an LLM server running on the host, which is
+    # what its Base URL placeholder (host.docker.internal) promises. The host
+    # service must listen on 0.0.0.0, not 127.0.0.1, for this to resolve to
+    # anything reachable.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   frontend:
