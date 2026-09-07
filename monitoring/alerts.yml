@@ -1,0 +1,57 @@
+# Prometheus does not expand environment variables in rule files, so every
+# threshold here is a literal. Changing one means editing this file and
+# re-running the Deploy workflow.
+groups:
+  - name: matcha
+    rules:
+      - alert: BackendDown
+        expr: up{job="backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend is not being scraped"
+
+      - alert: HighLLMErrorRate
+        expr: >
+          sum(rate(llm_calls_total{outcome="error"}[5m]))
+          / clamp_min(sum(rate(llm_calls_total[5m])), 0.001) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 10% of OpenAI calls are failing"
+
+      - alert: DailyCostExceeded
+        expr: sum(increase(llm_cost_usd_total[24h])) > 5
+        labels:
+          severity: warning
+        annotations:
+          summary: "Estimated OpenAI spend over the last 24h exceeded $5"
+
+      - alert: DiskAlmostFull
+        expr: >
+          node_filesystem_avail_bytes{mountpoint="/rootfs",fstype!~"tmpfs|overlay"}
+          / node_filesystem_size_bytes{mountpoint="/rootfs",fstype!~"tmpfs|overlay"} < 0.15
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Less than 15% free space on the root volume"
+
+      - alert: HighMemory
+        expr: >
+          (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host memory usage above 90%"
+
+      - alert: TelegramPollFailing
+        expr: sum(rate(telegram_poll_errors_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Telegram getUpdates has been failing for 5 minutes"
