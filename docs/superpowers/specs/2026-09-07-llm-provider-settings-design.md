@@ -258,7 +258,8 @@ exercises the whole path.
 
 ## Risks
 
-- **The signature change is broad.** Eight functions and three call-site modules.
+- **The signature change is broad.** Nine functions across three modules, plus
+  three call sites.
   Mitigated by doing it as its own step, with the existing suite as the net, and
   by adding no behaviour in that step.
 - **Small Ollama models ignore JSON mode.** `rerank` and `extract_favourite` pass
@@ -287,8 +288,8 @@ Recorded so the deferred work starts from an answer rather than a survey:
 
 1. Migration, the `LLMSettings` model, and the settings module (encryption,
    fallback, caching) — independently testable, with no consumers yet.
-2. Split `get_chat_client` / `get_embedding_client`, change the eight signatures,
-   update the three call sites. No new behaviour; the existing suite must stay
+2. Split `get_chat_client` / `get_embedding_client`, change the signatures in the
+   table above, update the three call sites. No new behaviour; the existing suite must stay
    green.
 3. The `admin_llm_settings` router: GET, POST `/test`, PUT.
 4. `SettingsPage.tsx`, the route, the sidebar link, and the frontend tests.
