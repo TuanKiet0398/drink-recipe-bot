@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -96,3 +96,23 @@ class TokenUsage(Base):
     completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_tokens: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+
+class LLMSettings(Base):
+    """Singleton row (id is always 1) holding the active chat provider.
+
+    Embeddings are deliberately not represented here: the Chroma index is
+    built with OpenAI's text-embedding-3-small, so changing that provider
+    would invalidate every stored vector.
+    """
+
+    __tablename__ = "llm_settings"
+    __table_args__ = (CheckConstraint("id = 1", name="ck_llm_settings_singleton"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider: Mapped[str] = mapped_column(String)
+    base_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    encrypted_api_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    chat_model: Mapped[str] = mapped_column(String)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+    updated_by: Mapped[str] = mapped_column(String, default="")
