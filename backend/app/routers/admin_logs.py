@@ -1,29 +1,61 @@
+from datetime import UTC, datetime, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.auth import log_admin_action, require_admin
 from app.db.base import get_db
-from app.db.models import AdminAuditLog, Message
+from app.db.models import AdminAuditLog, Message, User
 
 router = APIRouter(prefix="/admin/logs")
+
+ACCESS_LOG_ROLES = ("user", "assistant")
+
+
+def _parse_date_or_400(value: str, field: str) -> datetime:
+    """Parse a YYYY-MM-DD filter bound as midnight UTC.
+
+    `created_at` is stored in UTC, so the filter bounds are UTC too — a date
+    here means a UTC day, not the admin's local day.
+    """
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=UTC)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"{field} must be YYYY-MM-DD") from None
 
 
 @router.get("/access")
 def access_log(
     limit: int = 50,
     offset: int = 0,
+    role: str | None = None,
+    telegram_user_id: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
     db: Session = Depends(get_db),
     admin_user: str = Depends(require_admin),
 ):
-    rows = (
-        db.query(Message)
-        .options(joinedload(Message.user))
-        .order_by(Message.created_at.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
+    query = db.query(Message).options(joinedload(Message.user))
+
+    if role is not None:
+        # Rejected rather than ignored: an unexpected value means the caller
+        # is broken, and silently returning everything would hide that.
+        if role not in ACCESS_LOG_ROLES:
+            raise HTTPException(status_code=400, detail=f"role must be one of {ACCESS_LOG_ROLES}")
+        query = query.filter(Message.role == role)
+
+    if telegram_user_id is not None:
+        query = query.join(User).filter(User.telegram_user_id == telegram_user_id)
+
+    if from_date is not None:
+        query = query.filter(Message.created_at >= _parse_date_or_400(from_date, "from_date"))
+
+    if to_date is not None:
+        # Exclusive upper bound one day on, so the final day is included whole.
+        query = query.filter(Message.created_at < _parse_date_or_400(to_date, "to_date") + timedelta(days=1))
+
+    rows = query.order_by(Message.created_at.desc()).offset(offset).limit(limit).all()
     return [
         {
             "id": m.id,

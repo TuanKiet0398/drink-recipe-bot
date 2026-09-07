@@ -79,4 +79,104 @@ describe("AccessLogPage", () => {
     await waitFor(() => expect(screen.getByText("success")).toBeInTheDocument());
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
   });
+  it("sends no filter params until a filter is chosen", async () => {
+    let query: URLSearchParams | null = null;
+    server.use(
+      http.get(`${API_BASE}/admin/logs/access`, ({ request }) => {
+        query = new URL(request.url).searchParams;
+        return HttpResponse.json([]);
+      })
+    );
+    render(<AccessLogPage />);
+
+    await waitFor(() => expect(query).not.toBeNull());
+    expect(query!.get("role")).toBeNull();
+    expect(query!.get("telegram_user_id")).toBeNull();
+    expect(query!.get("from_date")).toBeNull();
+    expect(query!.get("to_date")).toBeNull();
+  });
+
+  it("sends the chosen role and date range", async () => {
+    let query: URLSearchParams | null = null;
+    server.use(
+      http.get(`${API_BASE}/admin/logs/access`, ({ request }) => {
+        query = new URL(request.url).searchParams;
+        return HttpResponse.json([]);
+      })
+    );
+    render(<AccessLogPage />);
+    await waitFor(() => expect(query).not.toBeNull());
+
+    await userEvent.selectOptions(screen.getByLabelText("Role"), "assistant");
+    await waitFor(() => expect(query!.get("role")).toBe("assistant"));
+
+    await userEvent.type(screen.getByLabelText("From"), "2026-03-01");
+    await waitFor(() => expect(query!.get("from_date")).toBe("2026-03-01"));
+  });
+
+  it("populates the customer dropdown from /admin/users", async () => {
+    server.use(
+      http.get(`${API_BASE}/admin/logs/access`, () => HttpResponse.json([])),
+      http.get(`${API_BASE}/admin/users`, () =>
+        HttpResponse.json([
+          { id: 1, telegram_user_id: "alice" },
+          { id: 2, telegram_user_id: "bob" },
+        ])
+      )
+    );
+    render(<AccessLogPage />);
+
+    expect(await screen.findByRole("option", { name: "alice" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "bob" })).toBeInTheDocument();
+  });
+
+  it("resets to the first page when a filter changes", async () => {
+    let query: URLSearchParams | null = null;
+    server.use(
+      http.get(`${API_BASE}/admin/logs/access`, ({ request }) => {
+        query = new URL(request.url).searchParams;
+        // A full page, so the Next button stays enabled.
+        return HttpResponse.json(
+          Array.from({ length: 20 }, (_, i) => ({
+            id: i,
+            telegram_user_id: "42",
+            role: "user",
+            content: `msg-${i}`,
+            created_at: "now",
+          }))
+        );
+      })
+    );
+    render(<AccessLogPage />);
+    await waitFor(() => expect(screen.getByText("msg-0")).toBeInTheDocument());
+
+    // Page forward, then narrow the filter: offset must go back to 0, or the
+    // admin lands on an empty page of a now-shorter result set.
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(query!.get("offset")).toBe("20"));
+
+    await userEvent.selectOptions(screen.getByLabelText("Role"), "user");
+
+    await waitFor(() => expect(query!.get("offset")).toBe("0"));
+    expect(query!.get("role")).toBe("user");
+  });
+
+  it("clears every filter", async () => {
+    let query: URLSearchParams | null = null;
+    server.use(
+      http.get(`${API_BASE}/admin/logs/access`, ({ request }) => {
+        query = new URL(request.url).searchParams;
+        return HttpResponse.json([]);
+      })
+    );
+    render(<AccessLogPage />);
+    await waitFor(() => expect(query).not.toBeNull());
+
+    await userEvent.selectOptions(screen.getByLabelText("Role"), "user");
+    await waitFor(() => expect(query!.get("role")).toBe("user"));
+
+    await userEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+
+    await waitFor(() => expect(query!.get("role")).toBeNull());
+  });
 });
