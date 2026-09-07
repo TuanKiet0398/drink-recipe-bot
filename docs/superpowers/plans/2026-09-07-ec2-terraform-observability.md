@@ -1310,11 +1310,12 @@ Add a `{"type": "row", "title": "HTTP"}`, `{"type": "row", "title": "LLM"}`, and
 - [ ] **Step 5: Verify the Prometheus config parses**
 
 ```bash
-docker run --rm -v "$PWD/monitoring:/m" --entrypoint promtool prom/prometheus check config /m/prometheus.yml
+docker run --rm -v "$PWD/monitoring:/etc/prometheus:ro" --entrypoint promtool \
+  prom/prometheus check config /etc/prometheus/prometheus.yml
 docker run --rm -v "$PWD/monitoring:/m" --entrypoint promtool prom/prometheus check rules /m/alerts.yml
 ```
 
-Expected: `SUCCESS` for both. `check config` will warn that it cannot find `/etc/prometheus/alerts.yml` from outside the container; that warning is expected and the rules are validated separately by the second command.
+Expected: `SUCCESS` for both. The config check mounts at `/etc/prometheus` on purpose: `prometheus.yml` refers to `/etc/prometheus/alerts.yml`, and `check config` fails hard (not merely warns) when that path does not resolve inside the container.
 
 - [ ] **Step 6: Verify the dashboard JSON parses**
 
@@ -2049,7 +2050,8 @@ In `.github/workflows/deploy.yml`, after the existing "Run backend tests" step, 
       - name: Validate Prometheus config
         run: |
           docker run --rm -v "$PWD/monitoring:/m" --entrypoint promtool prom/prometheus check rules /m/alerts.yml
-          docker run --rm -v "$PWD/monitoring:/m" --entrypoint promtool prom/prometheus check config /m/prometheus.yml
+          docker run --rm -v "$PWD/monitoring:/etc/prometheus:ro" --entrypoint promtool \
+            prom/prometheus check config /etc/prometheus/prometheus.yml
 
       - name: Validate production compose file
         env:
@@ -2296,7 +2298,7 @@ After all tasks are done:
 - [ ] `cd backend && ruff check . && ruff format --check .` — clean
 - [ ] `cd infra && terraform fmt -check && terraform validate` — clean
 - [ ] `docker compose -f docker-compose.prod.yml config` — valid with `GHCR_REPO` and `GRAFANA_ADMIN_PASSWORD` set
-- [ ] `promtool check config` and `promtool check rules` — SUCCESS
+- [ ] `promtool check config` (mounted at `/etc/prometheus`) and `promtool check rules` — SUCCESS
 - [ ] The stack runs locally, all Prometheus targets report `up`, and the Grafana dashboard has data (Task 9 Step 4)
 - [ ] `grep -A3 '^on:' .github/workflows/deploy.yml` shows `workflow_dispatch` only
 - [ ] No metric anywhere carries `user_id`, `telegram_user_id`, `chat_id`, or message text as a label
