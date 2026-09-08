@@ -11,6 +11,7 @@ import { UsagePage } from "./usage/UsagePage";
 import { WelcomePage } from "./welcome/WelcomePage";
 import { ChannelsPage } from "./channels/ChannelsPage";
 import { SettingsPage } from "./settings/SettingsPage";
+import { PersonalityPage } from "./personality/PersonalityPage";
 
 export function App() {
   return (
@@ -35,6 +36,7 @@ export function App() {
             <Route path="usage" element={<UsagePage />} />
             <Route path="channels" element={<ChannelsPage />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="personality" element={<PersonalityPage />} />
           </Route>
         </Routes>
       </AuthProvider>
