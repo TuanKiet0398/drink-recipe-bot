@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 from chromadb import PersistentClient
 
 from app.agent.clients import get_or_create_collection
-from app.ingestion import Chunk, chunk_document, chunk_text, embed_and_upsert
+from app.ingestion import Chunk, chunk_document, chunk_text, embed_and_upsert, split_into_pieces
 
 
 def test_chunk_text_splits_into_word_count_windows():
@@ -16,6 +16,32 @@ def test_chunk_text_splits_into_word_count_windows():
 
 def test_chunk_text_returns_whole_text_when_shorter_than_chunk_size():
     assert chunk_text("just a few words") == ["just a few words"]
+
+
+def test_split_into_pieces_returns_whole_text_as_one_piece_when_short():
+    text = "Paragraph one.\n\nParagraph two."
+    assert split_into_pieces(text, max_chars=1000) == [text]
+
+
+def test_split_into_pieces_splits_on_paragraph_boundaries_within_char_budget():
+    paragraphs = [f"Paragraph {i}. " + ("x" * 40) for i in range(10)]
+    text = "\n\n".join(paragraphs)
+
+    pieces = split_into_pieces(text, max_chars=120)
+
+    assert len(pieces) > 1
+    assert "".join(pieces).replace("\n\n", "") == text.replace("\n\n", "")
+    for piece in pieces:
+        assert len(piece) <= 120 or "\n\n" not in piece
+
+
+def test_split_into_pieces_keeps_an_oversized_single_paragraph_whole():
+    huge_paragraph = "x" * 500
+    text = f"short one\n\n{huge_paragraph}\n\nshort two"
+
+    pieces = split_into_pieces(text, max_chars=100)
+
+    assert huge_paragraph in pieces
 
 
 def test_chunk_document_parses_bilingual_llm_response_into_chunks(db_session):
@@ -70,6 +96,42 @@ def test_chunk_document_prompt_asks_for_bilingual_headline_and_summary(db_sessio
     prompt = fake_openai.chat.completions.create.call_args.kwargs["messages"][0]["content"]
     assert "Vietnamese" in prompt
     assert "English" in prompt
+
+
+def test_chunk_document_calls_llm_once_per_piece_for_a_long_document(db_session):
+    paragraphs = [f"Paragraph {i}. " + ("x" * 40) for i in range(10)]
+    long_text = "\n\n".join(paragraphs)
+
+    fake_openai = MagicMock()
+
+    def fake_create(*, messages, **kwargs):
+        piece_text = messages[0]["content"]
+        return MagicMock(
+            choices=[
+                MagicMock(
+                    message=MagicMock(
+                        content=json.dumps(
+                            {"chunks": [{"headline": "H", "summary": "S", "original_text": piece_text}]}
+                        )
+                    )
+                )
+            ],
+            usage=None,
+        )
+
+    fake_openai.chat.completions.create.side_effect = fake_create
+
+    chunks = chunk_document(
+        long_text,
+        "long-doc.txt",
+        chat_client=fake_openai,
+        chat_model="gpt-4o-mini",
+        db=db_session,
+        max_chars=120,
+    )
+
+    assert fake_openai.chat.completions.create.call_count > 1
+    assert len(chunks) == fake_openai.chat.completions.create.call_count
 
 
 def test_chunk_document_falls_back_to_naive_chunking_when_llm_fails(db_session):

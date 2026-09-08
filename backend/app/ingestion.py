@@ -34,6 +34,32 @@ class Chunk(BaseModel):
         return f"{self.headline}\n\n{self.summary}\n\n{self.original_text}"
 
 
+def split_into_pieces(text: str, max_chars: int = 12000) -> list[str]:
+    """Pre-splits `text` on paragraph boundaries (`\\n\\n`) into pieces no
+    longer than `max_chars`, so a very long document never gets sent as a
+    single LLM chunking call. A single paragraph longer than `max_chars` is
+    kept whole rather than cut mid-sentence."""
+    if len(text) <= max_chars:
+        return [text]
+
+    paragraphs = text.split("\n\n")
+    pieces: list[str] = []
+    current: list[str] = []
+    current_len = 0
+    for paragraph in paragraphs:
+        added_len = len(paragraph) + (2 if current else 0)
+        if current and current_len + added_len > max_chars:
+            pieces.append("\n\n".join(current))
+            current = []
+            current_len = 0
+            added_len = len(paragraph)
+        current.append(paragraph)
+        current_len += added_len
+    if current:
+        pieces.append("\n\n".join(current))
+    return pieces
+
+
 def chunk_text(text: str, chunk_size: int = 500) -> list[str]:
     """Naive word-count chunker — the fallback used when LLM chunking fails."""
     words = text.split()
@@ -60,15 +86,26 @@ def _chunk_via_llm(
 
 
 def chunk_document(
-    text: str, filename: str, chat_client, chat_model: str, db, user_id: int | None = None
+    text: str,
+    filename: str,
+    chat_client,
+    chat_model: str,
+    db,
+    user_id: int | None = None,
+    max_chars: int = 12000,
 ) -> list[Chunk]:
     """Split `text` into bilingual (Vietnamese/English headline+summary)
-    chunks via an LLM call. Falls back to the naive `chunk_text()` splitter
-    (wrapped as single-field chunks) if the LLM call fails or returns
-    unparseable output, so a provider outage never blocks a document upload.
-    """
+    chunks via an LLM call. Documents longer than `max_chars` are
+    pre-split on paragraph boundaries (`split_into_pieces`) and chunked one
+    piece at a time, so a long document never blows a single LLM call's
+    context. Falls back to the naive `chunk_text()` splitter (wrapped as
+    single-field chunks) if any piece's LLM call fails or returns
+    unparseable output, so a provider outage never blocks a document
+    upload."""
     try:
-        chunks = _chunk_via_llm(text, filename, chat_client, chat_model, db, user_id)
+        chunks: list[Chunk] = []
+        for piece in split_into_pieces(text, max_chars=max_chars):
+            chunks.extend(_chunk_via_llm(piece, filename, chat_client, chat_model, db, user_id))
         if chunks:
             return chunks
     except Exception:
