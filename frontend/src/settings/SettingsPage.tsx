@@ -93,7 +93,10 @@ export function SettingsPage() {
       chat_model: form.chatModel,
       base_url: form.provider === "ollama" ? form.baseUrl : null,
       api_key: form.apiKey === "" ? null : form.apiKey,
-      daily_token_limit: form.dailyTokenLimit === "" ? null : Number(form.dailyTokenLimit),
+      daily_token_limit:
+        form.dailyTokenLimit === "" || Number.isNaN(Number(form.dailyTokenLimit))
+          ? null
+          : Number(form.dailyTokenLimit),
     };
   }
 
