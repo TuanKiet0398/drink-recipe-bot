@@ -8,5 +8,6 @@ class AgentState(BaseModel):
     history: list[dict] = Field(default_factory=list)
     favourites: list[str] = Field(default_factory=list)
     summary: str | None = None
+    customer_notes: dict[str, str] = Field(default_factory=dict)
     retrieved_chunks: list[str] = Field(default_factory=list)
     reply: str = ""
