@@ -7,5 +7,6 @@ class AgentState(BaseModel):
     incoming_text: str
     history: list[dict] = Field(default_factory=list)
     favourites: list[str] = Field(default_factory=list)
+    summary: str | None = None
     retrieved_chunks: list[str] = Field(default_factory=list)
     reply: str = ""
