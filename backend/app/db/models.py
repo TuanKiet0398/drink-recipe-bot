@@ -77,6 +77,22 @@ class ConversationSummary(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
 
+class CustomerNote(Base):
+    __tablename__ = "customer_notes"
+    __table_args__ = (
+        Index("ix_customer_notes_user_id_note_type", "user_id", "note_type", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    note_type: Mapped[str] = mapped_column(String)
+    value: Mapped[str] = mapped_column(String)
+    confidence: Mapped[str] = mapped_column(String, default="inferred")
+    source: Mapped[str] = mapped_column(String, default="chat")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
 class Document(Base):
     __tablename__ = "documents"
 

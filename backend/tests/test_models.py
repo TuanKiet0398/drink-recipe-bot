@@ -1,7 +1,16 @@
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app.db.models import AdminAuditLog, Channel, ConversationSummary, Document, Favourite, Message, User
+from app.db.models import (
+    AdminAuditLog,
+    Channel,
+    ConversationSummary,
+    CustomerNote,
+    Document,
+    Favourite,
+    Message,
+    User,
+)
 
 
 def test_create_user_with_related_rows(db_session, channel_id):
@@ -61,3 +70,34 @@ def test_conversation_summary_one_row_per_user(db_session, channel_id):
     assert row.summary_text == "likes hojicha, avoid dairy"
     assert row.last_summarized_message_id is None
     assert row.updated_at is not None
+
+
+def test_customer_note_unique_per_user_and_type(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="cn1")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    db_session.add(CustomerNote(user_id=user.id, note_type="allergy", value="dairy"))
+    db_session.commit()
+
+    row = db_session.query(CustomerNote).filter_by(user_id=user.id, note_type="allergy").one()
+    assert row.value == "dairy"
+    assert row.confidence == "inferred"
+    assert row.source == "chat"
+    assert row.updated_at is not None
+
+
+def test_customer_note_rejects_a_second_row_for_the_same_user_and_type(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="cn2")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    db_session.add(CustomerNote(user_id=user.id, note_type="budget", value="50k"))
+    db_session.commit()
+
+    db_session.add(CustomerNote(user_id=user.id, note_type="budget", value="60k"))
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
