@@ -1,7 +1,7 @@
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app.db.models import AdminAuditLog, Channel, Document, Favourite, Message, User
+from app.db.models import AdminAuditLog, Channel, ConversationSummary, Document, Favourite, Message, User
 
 
 def test_create_user_with_related_rows(db_session, channel_id):
@@ -46,3 +46,18 @@ def test_users_unique_per_channel_and_telegram_id(db_session, channel_id):
     with pytest.raises(IntegrityError):
         db_session.commit()
     db_session.rollback()
+
+
+def test_conversation_summary_one_row_per_user(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="c1")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    db_session.add(ConversationSummary(user_id=user.id, summary_text="likes hojicha, avoid dairy"))
+    db_session.commit()
+
+    row = db_session.query(ConversationSummary).filter_by(user_id=user.id).one()
+    assert row.summary_text == "likes hojicha, avoid dairy"
+    assert row.last_summarized_message_id is None
+    assert row.updated_at is not None

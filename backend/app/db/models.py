@@ -66,6 +66,17 @@ class Favourite(Base):
     user: Mapped["User"] = relationship(back_populates="favourites")
 
 
+class ConversationSummary(Base):
+    __tablename__ = "conversation_summaries"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    summary_text: Mapped[str] = mapped_column(String, default="")
+    last_summarized_message_id: Mapped[int | None] = mapped_column(
+        ForeignKey("messages.id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
 class Document(Base):
     __tablename__ = "documents"
 
