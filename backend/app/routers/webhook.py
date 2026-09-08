@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.agent.clients import get_chat_client, get_chat_model, get_chroma_client, get_embedding_client
 from app.agent.graph import run_agent
-from app.agent.nodes import extract_favourite
+from app.agent.nodes import extract_favourite, maybe_summarize
 from app.agent.state import AgentState
 from app.db.models import Message, User
 from app.metrics import record_telegram_message
@@ -171,9 +171,13 @@ async def process_telegram_message(
 
     record_telegram_message(channel_id, "out")
 
-    task = asyncio.create_task(_extract_favourite_background(state, user.id))
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
+    favourite_task = asyncio.create_task(_extract_favourite_background(state, user.id))
+    _background_tasks.add(favourite_task)
+    favourite_task.add_done_callback(_background_tasks.discard)
+
+    summarize_task = asyncio.create_task(_maybe_summarize_background(user.id))
+    _background_tasks.add(summarize_task)
+    summarize_task.add_done_callback(_background_tasks.discard)
 
     return {}
 
@@ -194,5 +198,25 @@ async def _extract_favourite_background(state: AgentState, user_id: int) -> None
         )
     except Exception:
         logger.exception("extract_favourite failed for user_id=%s", user_id)
+    finally:
+        db.close()
+
+
+async def _maybe_summarize_background(user_id: int) -> None:
+    from app.db.base import SessionLocal
+
+    db = SessionLocal()
+    try:
+        # summarize_conversation makes a blocking OpenAI call; run it off the
+        # event loop thread so it doesn't stall other concurrent requests.
+        await asyncio.to_thread(
+            maybe_summarize,
+            db,
+            user_id,
+            chat_client=get_chat_client(db),
+            model=get_chat_model(db),
+        )
+    except Exception:
+        logger.exception("maybe_summarize failed for user_id=%s", user_id)
     finally:
         db.close()

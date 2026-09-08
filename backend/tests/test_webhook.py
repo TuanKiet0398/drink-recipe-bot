@@ -190,3 +190,50 @@ async def test_process_message_background_favourite_extraction_actually_runs(db_
     favourites = db_session.query(Favourite).filter_by(user_id=user.id).all()
     assert len(favourites) == 1
     assert favourites[0].drink_name == "sencha"
+
+
+@pytest.mark.asyncio
+async def test_process_message_background_summarization_actually_runs(db_session, channel_id):
+    from tests.conftest import TestSessionLocal
+    from app.db.models import ConversationSummary, Message
+
+    user = User(channel_id=channel_id, telegram_user_id="888")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    for i in range(29):  # 29 existing + 1 from this turn = 30 -> 20 aged out, threshold met
+        db_session.add(Message(user_id=user.id, role="user", content=f"msg {i}"))
+    db_session.commit()
+
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content="Rolling summary of the conversation so far."))
+    ]
+
+    with (
+        patch("app.routers.webhook.run_agent") as mock_run_agent,
+        patch("app.routers.webhook.send_message", new_callable=AsyncMock),
+        patch("app.routers.webhook.edit_message_text", new_callable=AsyncMock),
+        patch("app.routers.webhook.send_chat_action", new_callable=AsyncMock),
+        patch("app.routers.webhook.get_chat_client", return_value=fake_openai),
+        patch("app.routers.webhook.get_embedding_client", return_value=fake_openai),
+        patch("app.db.base.SessionLocal", TestSessionLocal),
+    ):
+
+        def fake_run_agent(state, **kwargs):
+            state.reply = "Welcome!"
+            return state
+
+        mock_run_agent.side_effect = fake_run_agent
+
+        await process_telegram_message(
+            channel_id, "TEST_TOKEN", "888", "888", "one more message", db_session
+        )
+
+        from app.routers.webhook import _background_tasks
+
+        for task in list(_background_tasks):
+            await task
+
+    row = db_session.query(ConversationSummary).filter_by(user_id=user.id).one()
+    assert row.summary_text == "Rolling summary of the conversation so far."
