@@ -1,5 +1,7 @@
+from datetime import UTC, datetime, timedelta
+
 from app.db.models import TokenUsage
-from app.token_usage import log_token_usage
+from app.token_usage import get_daily_token_total, log_token_usage
 
 
 def test_token_usage_model_persists_all_fields(db_session):
@@ -131,3 +133,40 @@ def test_log_token_usage_with_none_usage_records_nothing(db_session):
 
     after = REGISTRY.get_sample_value("llm_tokens_total", labels) or 0.0
     assert after == before
+
+
+def test_get_daily_token_total_sums_todays_rows_for_the_user(db_session):
+    db_session.add(TokenUsage(user_id=1, call_type="generate", model="gpt-4o-mini", prompt_tokens=100, total_tokens=100))
+    db_session.add(TokenUsage(user_id=1, call_type="generate", model="gpt-4o-mini", prompt_tokens=50, total_tokens=50))
+    db_session.commit()
+
+    assert get_daily_token_total(db_session, user_id=1) == 150
+
+
+def test_get_daily_token_total_ignores_other_users(db_session):
+    db_session.add(TokenUsage(user_id=1, call_type="generate", model="gpt-4o-mini", prompt_tokens=100, total_tokens=100))
+    db_session.add(TokenUsage(user_id=2, call_type="generate", model="gpt-4o-mini", prompt_tokens=999, total_tokens=999))
+    db_session.commit()
+
+    assert get_daily_token_total(db_session, user_id=1) == 100
+
+
+def test_get_daily_token_total_ignores_rows_from_before_today(db_session):
+    yesterday = datetime.now(UTC) - timedelta(days=1)
+    db_session.add(
+        TokenUsage(
+            user_id=1,
+            call_type="generate",
+            model="gpt-4o-mini",
+            prompt_tokens=999,
+            total_tokens=999,
+            created_at=yesterday,
+        )
+    )
+    db_session.commit()
+
+    assert get_daily_token_total(db_session, user_id=1) == 0
+
+
+def test_get_daily_token_total_returns_zero_when_no_rows(db_session):
+    assert get_daily_token_total(db_session, user_id=1) == 0

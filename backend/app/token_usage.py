@@ -1,6 +1,7 @@
 import logging
 from datetime import UTC, datetime
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import TokenUsage
@@ -38,3 +39,16 @@ def log_token_usage(db: Session, user_id: int | None, call_type: str, model: str
     except Exception:
         logger.exception("Failed to log token usage for call_type=%s model=%s", call_type, model)
         db.rollback()
+
+
+def get_daily_token_total(db: Session, user_id: int) -> int:
+    """Sums `total_tokens` across all of `user_id`'s `TokenUsage` rows
+    created since the start of the current UTC day. Used to enforce the
+    per-customer daily token cap (`LLMSettings.daily_token_limit`)."""
+    start_of_day = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    total = db.execute(
+        select(func.coalesce(func.sum(TokenUsage.total_tokens), 0)).where(
+            TokenUsage.user_id == user_id, TokenUsage.created_at >= start_of_day
+        )
+    ).scalar_one()
+    return int(total)
