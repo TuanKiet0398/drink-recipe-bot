@@ -1,9 +1,11 @@
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.db.base import SessionLocal
 from app.db.models import Message, User
 
 logger = logging.getLogger(__name__)
@@ -36,3 +38,25 @@ def purge_inactive_messages(db: Session, inactive_days: int = 30) -> int:
         db.delete(message)
     db.commit()
     return count
+
+
+async def run_retention_loop(interval_seconds: int = _SCAN_INTERVAL_SECONDS) -> None:
+    """Runs `purge_inactive_messages` on a fixed schedule for the lifetime
+    of the process, following the same shape as `run_poller()` in
+    `app/telegram_poller.py`: cancellation propagates immediately, any
+    other failure is logged and the loop continues on the next
+    interval."""
+    logger.info("30-day message retention loop started")
+    while True:
+        db = SessionLocal()
+        try:
+            deleted = purge_inactive_messages(db)
+            if deleted:
+                logger.info("Retention purge deleted %s message(s)", deleted)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Retention purge failed; retrying next interval")
+        finally:
+            db.close()
+        await asyncio.sleep(interval_seconds)

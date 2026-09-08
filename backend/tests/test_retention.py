@@ -1,7 +1,11 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from app.db.models import ConversationSummary, CustomerNote, Message, User
-from app.retention import purge_inactive_messages
+from app.retention import purge_inactive_messages, run_retention_loop
 
 
 def _user_with_last_active(db_session, channel_id, telegram_user_id, days_ago):
@@ -84,3 +88,51 @@ def test_purge_ignores_users_with_no_last_active_at(db_session, channel_id):
 
     assert deleted == 0
     assert db_session.query(Message).filter_by(user_id=user.id).count() == 1
+
+
+@pytest.mark.asyncio
+async def test_run_retention_loop_calls_purge_each_iteration(db_session):
+    from tests.conftest import TestSessionLocal
+
+    call_count = 0
+
+    def fake_purge(db, inactive_days=30):
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            raise asyncio.CancelledError()
+        return 0
+
+    with (
+        patch("app.retention.SessionLocal", TestSessionLocal),
+        patch("app.retention.purge_inactive_messages", side_effect=fake_purge),
+        patch("app.retention.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        with pytest.raises(asyncio.CancelledError):
+            await run_retention_loop(interval_seconds=0)
+
+    assert call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_run_retention_loop_survives_a_purge_failure(db_session):
+    from tests.conftest import TestSessionLocal
+
+    call_count = 0
+
+    def fake_purge(db, inactive_days=30):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("db hiccup")
+        raise asyncio.CancelledError()
+
+    with (
+        patch("app.retention.SessionLocal", TestSessionLocal),
+        patch("app.retention.purge_inactive_messages", side_effect=fake_purge),
+        patch("app.retention.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        with pytest.raises(asyncio.CancelledError):
+            await run_retention_loop(interval_seconds=0)
+
+    assert call_count == 2
