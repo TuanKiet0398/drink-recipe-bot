@@ -101,3 +101,27 @@ def test_customer_note_rejects_a_second_row_for_the_same_user_and_type(db_sessio
     with pytest.raises(IntegrityError):
         db_session.commit()
     db_session.rollback()
+
+
+def test_user_last_active_at_defaults_to_none(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="la1")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    assert user.last_active_at is None
+
+
+def test_user_last_active_at_can_be_set(db_session, channel_id):
+    from datetime import UTC, datetime
+
+    user = User(channel_id=channel_id, telegram_user_id="la2")
+    db_session.add(user)
+    db_session.commit()
+
+    now = datetime.now(UTC)
+    user.last_active_at = now
+    db_session.commit()
+    db_session.refresh(user)
+
+    assert user.last_active_at is not None

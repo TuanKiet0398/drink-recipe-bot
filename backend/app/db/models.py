@@ -35,6 +35,7 @@ class User(Base):
     telegram_user_id: Mapped[str] = mapped_column(String)
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     blocked: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     channel: Mapped["Channel"] = relationship(back_populates="users")
     messages: Mapped[list["Message"]] = relationship(back_populates="user")
