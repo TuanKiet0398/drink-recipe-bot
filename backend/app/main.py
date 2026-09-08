@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -7,6 +8,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from app.channel_manager import channel_manager
 from app.config import get_settings
 from app.db.base import SessionLocal
+from app.retention import run_retention_loop
 from app.routers import (
     admin_channels,
     admin_docs,
@@ -29,9 +31,15 @@ async def lifespan(app: FastAPI):
         await channel_manager.sync(db)
     finally:
         db.close()
+    retention_task = asyncio.create_task(run_retention_loop())
     try:
         yield
     finally:
+        retention_task.cancel()
+        try:
+            await retention_task
+        except asyncio.CancelledError:
+            pass
         await channel_manager.stop_all()
 
 
