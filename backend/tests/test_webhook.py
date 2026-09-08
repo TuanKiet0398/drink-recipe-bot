@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.db.models import User
+from app.db.models import Message, User
 from app.routers.webhook import THINKING_PLACEHOLDER, _get_or_create_user, process_telegram_message
 
 
@@ -315,3 +315,93 @@ def test_get_or_create_user_updates_last_active_at_for_an_existing_user(db_sessi
 
     assert user_again.id == user.id
     assert user_again.last_active_at.replace(tzinfo=None) > old_timestamp
+
+
+@pytest.mark.asyncio
+async def test_process_message_blocks_reply_when_daily_token_limit_reached(db_session, channel_id):
+    from app import llm_settings
+    from app.db.models import TokenUsage
+
+    user = User(channel_id=channel_id, telegram_user_id="limit1")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    db_session.add(
+        TokenUsage(user_id=user.id, call_type="generate", model="gpt-4o-mini", prompt_tokens=1000, total_tokens=1000)
+    )
+    db_session.commit()
+    llm_settings.save(
+        db_session,
+        provider="openai",
+        base_url=None,
+        api_key="k",
+        chat_model="gpt-4o-mini",
+        updated_by="admin",
+        daily_token_limit=1000,
+    )
+
+    with (
+        patch("app.routers.webhook.run_agent") as mock_run_agent,
+        patch("app.routers.webhook.send_message", new_callable=AsyncMock) as mock_send,
+    ):
+        await process_telegram_message(
+            channel_id, "TEST_TOKEN", "limit1", "limit1", "one more question", db_session
+        )
+
+        mock_run_agent.assert_not_called()
+        mock_send.assert_called_once()
+        sent_text = mock_send.call_args.kwargs.get("text") or mock_send.call_args.args[-1]
+        assert "limit" in sent_text.lower() or "giới hạn" in sent_text
+
+    reply_row = (
+        db_session.query(Message)
+        .filter_by(user_id=user.id, role="assistant")
+        .order_by(Message.id.desc())
+        .first()
+    )
+    assert reply_row is not None
+
+
+@pytest.mark.asyncio
+async def test_process_message_proceeds_when_under_daily_token_limit(db_session, channel_id):
+    from app import llm_settings
+
+    user = User(channel_id=channel_id, telegram_user_id="limit2")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    llm_settings.save(
+        db_session,
+        provider="openai",
+        base_url=None,
+        api_key="k",
+        chat_model="gpt-4o-mini",
+        updated_by="admin",
+        daily_token_limit=1000,
+    )
+
+    with (
+        patch("app.routers.webhook.run_agent") as mock_run_agent,
+        patch("app.routers.webhook.send_message", new_callable=AsyncMock),
+        patch("app.routers.webhook.edit_message_text", new_callable=AsyncMock),
+        patch("app.routers.webhook.send_chat_action", new_callable=AsyncMock),
+        patch("app.routers.webhook.get_chat_client", return_value=MagicMock()),
+        patch("app.routers.webhook.get_embedding_client", return_value=MagicMock()),
+    ):
+
+        def fake_run_agent(state, **kwargs):
+            state.reply = "Welcome!"
+            return state
+
+        mock_run_agent.side_effect = fake_run_agent
+
+        await process_telegram_message(
+            channel_id, "TEST_TOKEN", "limit2", "limit2", "a question", db_session
+        )
+
+        mock_run_agent.assert_called_once()
+
+        from app.routers.webhook import _background_tasks
+
+        for task in list(_background_tasks):
+            await task

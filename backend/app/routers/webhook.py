@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
+from app import llm_settings
 from app.agent.clients import get_chat_client, get_chat_model, get_chroma_client, get_embedding_client
 from app.agent.graph import run_agent
 from app.agent.nodes import extract_customer_notes, extract_favourite, maybe_summarize
@@ -12,11 +13,16 @@ from app.agent.state import AgentState
 from app.db.models import Message, User
 from app.metrics import record_telegram_message
 from app.telegram_client import edit_message_text, send_chat_action, send_message
+from app.token_usage import get_daily_token_total
 
 logger = logging.getLogger(__name__)
 
 FALLBACK_REPLY = "Sorry, having trouble right now — please try again in a bit."
 THINKING_PLACEHOLDER = "🤔 Đang suy nghĩ..."
+DAILY_LIMIT_REPLY = (
+    "Bạn đã đạt giới hạn sử dụng hôm nay, quay lại vào ngày mai nhé! "
+    "(You've reached today's usage limit — please come back tomorrow.)"
+)
 
 # Fire-and-forget background tasks (e.g. favourite extraction) are held here
 # so the event loop doesn't garbage-collect them mid-flight — asyncio only
@@ -116,6 +122,20 @@ async def process_telegram_message(
 
     db.add(Message(user_id=user.id, role="user", content=text))
     db.commit()
+
+    resolved_settings = llm_settings.resolve(db)
+    if (
+        resolved_settings.daily_token_limit is not None
+        and get_daily_token_total(db, user.id) >= resolved_settings.daily_token_limit
+    ):
+        db.add(Message(user_id=user.id, role="assistant", content=DAILY_LIMIT_REPLY))
+        db.commit()
+        try:
+            await send_message(bot_token, chat_id=chat_id, text=DAILY_LIMIT_REPLY)
+        except Exception:
+            logger.exception("send_message failed for user_id=%s", user.id)
+        record_telegram_message(channel_id, "out")
+        return {}
 
     state = AgentState(user_id=user.id, chat_id=chat_id, incoming_text=text)
 
