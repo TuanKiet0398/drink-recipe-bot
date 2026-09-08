@@ -14,6 +14,7 @@ from app.routers import (
     admin_docs,
     admin_llm_settings,
     admin_logs,
+    admin_soul,
     admin_usage,
     admin_users,
     health,
@@ -58,6 +59,7 @@ app.include_router(admin_users.router)
 app.include_router(admin_users.login_router)
 app.include_router(admin_logs.router)
 app.include_router(admin_llm_settings.router)
+app.include_router(admin_soul.router)
 app.include_router(admin_usage.router)
 app.include_router(metrics.router)
 
