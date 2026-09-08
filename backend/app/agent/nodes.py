@@ -126,6 +126,46 @@ def rerank(
     return chunks
 
 
+def summarize_conversation(
+    old_summary: str,
+    messages: list[Message],
+    chat_client,
+    model: str,
+    db: Session,
+    user_id: int,
+) -> str:
+    """Merges `old_summary` with a new batch of aging-out messages into one
+    updated, bounded-length summary. Falls back to `old_summary` unchanged
+    if the LLM call fails, so a transient failure never loses the existing
+    summary or advances the caller's cursor."""
+    transcript = "\n".join(f"{m.role}: {m.content}" for m in messages)
+    prompt = (
+        "You maintain a running summary of a customer's conversation with a "
+        "premium matcha and tea shop's consultant bot.\n\n"
+        f"Existing summary so far: {old_summary or '(none yet)'}\n\n"
+        f"New messages to fold in:\n{transcript}\n\n"
+        "Write one updated summary that replaces the existing one, in at most "
+        "250 words. Keep only durable facts: preferences, allergies or other "
+        "constraints, decisions made, and products discussed. Drop small talk "
+        "and anything already resolved. Respond with the summary text only."
+    )
+
+    def _call():
+        return chat_client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+    try:
+        response = retry_once(_call, call_type="summarize_conversation", model=model)
+    except Exception:
+        logger.exception("summarize_conversation failed; keeping the existing summary")
+        return old_summary
+
+    log_token_usage(db, user_id, "summarize_conversation", model, response.usage)
+    return (response.choices[0].message.content or "").strip() or old_summary
+
+
 def retrieve(
     state: AgentState,
     db: Session,

@@ -5,7 +5,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.agent import nodes
-from app.agent.nodes import extract_favourite, fetch_history, generate, rerank, retrieve, rewrite_query
+from app.agent.nodes import (
+    extract_favourite,
+    fetch_history,
+    generate,
+    rerank,
+    retrieve,
+    rewrite_query,
+    summarize_conversation,
+)
 from app.agent.state import AgentState
 from app.db.models import ConversationSummary, Favourite, Message, User
 from app.retry import retry_once
@@ -495,3 +503,34 @@ def test_build_system_prompt_omits_summary_section_when_absent():
     state = AgentState(user_id=1, chat_id="1", incoming_text="hi")
     prompt = nodes._build_system_prompt(state)
     assert "What we know" not in prompt
+
+
+def test_summarize_conversation_calls_llm_with_old_summary_and_new_messages(db_session):
+    messages = [
+        Message(id=1, user_id=1, role="user", content="I'm allergic to dairy"),
+        Message(id=2, user_id=1, role="assistant", content="Noted, I'll avoid dairy-based drinks"),
+    ]
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content="Customer is allergic to dairy."))
+    ]
+
+    result = summarize_conversation("", messages, fake_openai, "gpt-4o-mini", db_session, user_id=1)
+
+    assert result == "Customer is allergic to dairy."
+    call_kwargs = fake_openai.chat.completions.create.call_args.kwargs
+    prompt = call_kwargs["messages"][0]["content"]
+    assert "allergic to dairy" in prompt
+
+
+def test_summarize_conversation_falls_back_to_old_summary_when_llm_fails(db_session):
+    messages = [Message(id=1, user_id=1, role="user", content="hi")]
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.side_effect = RuntimeError("down")
+
+    with patch("app.retry.time.sleep"):
+        result = summarize_conversation(
+            "existing summary", messages, fake_openai, "gpt-4o-mini", db_session, user_id=1
+        )
+
+    assert result == "existing summary"
