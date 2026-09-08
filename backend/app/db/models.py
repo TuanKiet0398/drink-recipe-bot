@@ -142,5 +142,6 @@ class LLMSettings(Base):
     base_url: Mapped[str | None] = mapped_column(String, nullable=True)
     encrypted_api_key: Mapped[str | None] = mapped_column(String, nullable=True)
     chat_model: Mapped[str] = mapped_column(String)
+    daily_token_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
     updated_by: Mapped[str] = mapped_column(String, default="")

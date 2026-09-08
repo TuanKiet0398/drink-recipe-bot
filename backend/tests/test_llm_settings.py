@@ -130,3 +130,34 @@ def test_read_row_returns_none_when_unconfigured(db_session):
 
 def test_providers_are_exactly_openai_and_ollama():
     assert llm_settings.PROVIDERS == ("openai", "ollama")
+
+
+def test_resolve_daily_token_limit_defaults_to_none_when_unconfigured(db_session):
+    assert llm_settings.resolve(db_session).daily_token_limit is None
+
+
+def test_save_and_resolve_round_trip_daily_token_limit(db_session):
+    llm_settings.save(
+        db_session,
+        provider="openai",
+        base_url=None,
+        api_key="k1",
+        chat_model="gpt-4o-mini",
+        updated_by="admin",
+        daily_token_limit=50000,
+    )
+
+    assert llm_settings.resolve(db_session).daily_token_limit == 50000
+
+
+def test_save_defaults_daily_token_limit_to_none_when_not_passed(db_session):
+    llm_settings.save(
+        db_session,
+        provider="openai",
+        base_url=None,
+        api_key="k1",
+        chat_model="gpt-4o-mini",
+        updated_by="admin",
+    )
+
+    assert llm_settings.resolve(db_session).daily_token_limit is None

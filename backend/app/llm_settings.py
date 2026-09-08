@@ -28,6 +28,7 @@ class ResolvedSettings:
     api_key: str
     chat_model: str
     is_default: bool
+    daily_token_limit: int | None
 
 
 def read_row(db: Session) -> LLMSettings | None:
@@ -43,6 +44,7 @@ def resolve(db: Session) -> ResolvedSettings:
             api_key=get_settings().openai_api_key,
             chat_model=DEFAULT_CHAT_MODEL,
             is_default=True,
+            daily_token_limit=None,
         )
     return ResolvedSettings(
         provider=row.provider,
@@ -50,6 +52,7 @@ def resolve(db: Session) -> ResolvedSettings:
         api_key=decrypt(row.encrypted_api_key) if row.encrypted_api_key else "",
         chat_model=row.chat_model,
         is_default=False,
+        daily_token_limit=row.daily_token_limit,
     )
 
 
@@ -60,11 +63,13 @@ def save(
     api_key: str | None,
     chat_model: str,
     updated_by: str,
+    daily_token_limit: int | None = None,
 ) -> LLMSettings:
     """Upsert the singleton row.
 
     `api_key=None` means "leave the stored key alone", which is how the UI
     lets an admin change the model without re-entering the key.
+    `daily_token_limit=None` means "no per-customer daily cap".
     """
     row = read_row(db)
     if row is None:
@@ -75,6 +80,7 @@ def save(
     row.base_url = base_url
     row.chat_model = chat_model
     row.updated_by = updated_by
+    row.daily_token_limit = daily_token_limit
     if api_key is not None:
         row.encrypted_api_key = encrypt(api_key) if api_key else None
 
