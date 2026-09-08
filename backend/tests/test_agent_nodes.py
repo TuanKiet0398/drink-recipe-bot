@@ -498,24 +498,32 @@ def test_build_system_prompt_includes_soul_content_when_file_exists(tmp_path, mo
     soul_path = tmp_path / "SOUL.md"
     soul_path.write_text("You genuinely like tea and it shows.", encoding="utf-8")
     monkeypatch.setattr(nodes, "SOUL_PATH", soul_path)
-    nodes._load_soul.cache_clear()
 
     state = AgentState(user_id=1, chat_id="1", incoming_text="hi")
     prompt = nodes._build_system_prompt(state)
 
     assert "You genuinely like tea and it shows." in prompt
-    nodes._load_soul.cache_clear()
 
 
 def test_build_system_prompt_falls_back_when_soul_file_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(nodes, "SOUL_PATH", tmp_path / "does-not-exist.md")
-    nodes._load_soul.cache_clear()
 
     state = AgentState(user_id=1, chat_id="1", incoming_text="hi")
     prompt = nodes._build_system_prompt(state)
 
     assert "premium matcha" in prompt
-    nodes._load_soul.cache_clear()
+
+
+def test_load_soul_reflects_an_edit_without_a_restart(tmp_path, monkeypatch):
+    soul_path = tmp_path / "SOUL.md"
+    soul_path.write_text("Original personality.", encoding="utf-8")
+    monkeypatch.setattr(nodes, "SOUL_PATH", soul_path)
+
+    assert nodes._load_soul() == "Original personality."
+
+    soul_path.write_text("Edited personality, no restart needed.", encoding="utf-8")
+
+    assert nodes._load_soul() == "Edited personality, no restart needed."
 
 
 def test_build_system_prompt_includes_summary_when_present():

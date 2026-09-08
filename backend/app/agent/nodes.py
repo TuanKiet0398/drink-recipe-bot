@@ -1,7 +1,6 @@
 import json
 import logging
 from collections.abc import Callable
-from functools import lru_cache
 from pathlib import Path
 
 from sqlalchemy import select
@@ -19,11 +18,11 @@ logger = logging.getLogger(__name__)
 EMBEDDING_MODEL = "text-embedding-3-small"
 
 # The bot's personality/tone — see SOUL.md for the full description. Read
-# once and cached; editing it requires a server restart to take effect.
+# fresh on every call (cheap local file, no caching) so an admin's edit
+# via /admin/soul takes effect on the next message, no restart needed.
 SOUL_PATH = Path(__file__).resolve().parent.parent.parent / "SOUL.md"
 
 
-@lru_cache
 def _load_soul() -> str:
     try:
         return SOUL_PATH.read_text(encoding="utf-8").strip()
