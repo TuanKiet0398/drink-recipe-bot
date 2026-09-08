@@ -7,7 +7,7 @@ import pytest
 from app.agent import nodes
 from app.agent.nodes import extract_favourite, fetch_history, generate, rerank, retrieve, rewrite_query
 from app.agent.state import AgentState
-from app.db.models import Favourite, Message, User
+from app.db.models import ConversationSummary, Favourite, Message, User
 from app.retry import retry_once
 
 
@@ -71,6 +71,33 @@ def test_fetch_history_returns_last_n_messages_in_chronological_order(db_session
     assert len(result.history) == 10
     contents = [m["content"] for m in result.history]
     assert contents == [f"message-{i}" for i in range(5, 15)]
+
+
+def test_fetch_history_loads_existing_summary(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="200")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    db_session.add(ConversationSummary(user_id=user.id, summary_text="prefers oat milk, no sugar"))
+    db_session.commit()
+
+    state = AgentState(user_id=user.id, chat_id="200", incoming_text="what's good today?")
+    result = fetch_history(state, db_session)
+
+    assert result.summary == "prefers oat milk, no sugar"
+
+
+def test_fetch_history_summary_is_none_when_no_row_exists(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="201")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    state = AgentState(user_id=user.id, chat_id="201", incoming_text="hi")
+    result = fetch_history(state, db_session)
+
+    assert result.summary is None
 
 
 def _fake_chroma(query_results):
@@ -451,3 +478,20 @@ def test_build_system_prompt_falls_back_when_soul_file_missing(tmp_path, monkeyp
 
     assert "premium matcha" in prompt
     nodes._load_soul.cache_clear()
+
+
+def test_build_system_prompt_includes_summary_when_present():
+    state = AgentState(
+        user_id=1,
+        chat_id="1",
+        incoming_text="hi",
+        summary="Customer is allergic to dairy and prefers lightly sweetened drinks.",
+    )
+    prompt = nodes._build_system_prompt(state)
+    assert "allergic to dairy" in prompt
+
+
+def test_build_system_prompt_omits_summary_section_when_absent():
+    state = AgentState(user_id=1, chat_id="1", incoming_text="hi")
+    prompt = nodes._build_system_prompt(state)
+    assert "What we know" not in prompt

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.agent.clients import get_or_create_collection
 from app.agent.state import AgentState
-from app.db.models import Favourite, Message
+from app.db.models import ConversationSummary, Favourite, Message
 from app.metrics import RETRIEVE_CHUNKS
 from app.retry import retry_once
 from app.token_usage import log_token_usage
@@ -47,6 +47,12 @@ def fetch_history(state: AgentState, db: Session, limit: int = 10) -> AgentState
 
     favourite_rows = db.execute(select(Favourite).where(Favourite.user_id == state.user_id)).scalars().all()
     state.favourites = [f.drink_name for f in favourite_rows]
+
+    summary_row = db.execute(
+        select(ConversationSummary).where(ConversationSummary.user_id == state.user_id)
+    ).scalar_one_or_none()
+    state.summary = summary_row.summary_text if summary_row and summary_row.summary_text else None
+
     return state
 
 
@@ -183,8 +189,12 @@ def _build_system_prompt(state: AgentState) -> str:
     context = "\n".join(f"- {chunk}" for chunk in state.retrieved_chunks) or "(no matching knowledge found)"
     soul = _load_soul()
     soul_section = f"{soul}\n\n" if soul else ""
+    summary_section = (
+        f"What we know from earlier in this conversation: {state.summary}\n\n" if state.summary else ""
+    )
     return (
         f"{soul_section}"
+        f"{summary_section}"
         "You are a premium matcha and tea ceremony consultant for this specific shop. "
         f"The user's known favourite drinks: {favourites}. "
         f"Relevant knowledge (this is everything the shop actually offers — only recommend from this):\n{context}\n"
