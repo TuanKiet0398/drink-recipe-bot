@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
@@ -36,8 +37,9 @@ def _get_or_create_user(db: Session, channel_id: int, telegram_user_id: str) -> 
     if user is None:
         user = User(channel_id=channel_id, telegram_user_id=telegram_user_id)
         db.add(user)
-        db.commit()
-        db.refresh(user)
+    user.last_active_at = datetime.now(UTC)
+    db.commit()
+    db.refresh(user)
     return user
 
 

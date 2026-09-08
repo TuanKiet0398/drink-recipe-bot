@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.db.models import User
-from app.routers.webhook import THINKING_PLACEHOLDER, process_telegram_message
+from app.routers.webhook import THINKING_PLACEHOLDER, _get_or_create_user, process_telegram_message
 
 
 @pytest.mark.asyncio
@@ -288,3 +288,30 @@ async def test_process_message_background_customer_note_extraction_actually_runs
 
     row = db_session.query(CustomerNote).filter_by(user_id=user.id, note_type="allergy").one()
     assert row.value == "peanuts"
+
+
+def test_get_or_create_user_sets_last_active_at_for_a_new_user(db_session, channel_id):
+    from datetime import UTC, datetime
+
+    before = datetime.now(UTC).replace(tzinfo=None)
+    user = _get_or_create_user(db_session, channel_id, "la-new")
+    after = datetime.now(UTC).replace(tzinfo=None)
+
+    # SQLite round-trips DateTime(timezone=True) as naive in this test
+    # suite's in-memory engine — compare on naive values on both sides.
+    assert user.last_active_at is not None
+    assert before <= user.last_active_at.replace(tzinfo=None) <= after
+
+
+def test_get_or_create_user_updates_last_active_at_for_an_existing_user(db_session, channel_id):
+    from datetime import UTC, datetime, timedelta
+
+    user = _get_or_create_user(db_session, channel_id, "la-existing")
+    old_timestamp = (datetime.now(UTC) - timedelta(days=5)).replace(tzinfo=None)
+    user.last_active_at = old_timestamp
+    db_session.commit()
+
+    user_again = _get_or_create_user(db_session, channel_id, "la-existing")
+
+    assert user_again.id == user.id
+    assert user_again.last_active_at.replace(tzinfo=None) > old_timestamp
