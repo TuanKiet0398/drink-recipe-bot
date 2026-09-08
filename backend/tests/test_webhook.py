@@ -1,4 +1,5 @@
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -237,3 +238,53 @@ async def test_process_message_background_summarization_actually_runs(db_session
 
     row = db_session.query(ConversationSummary).filter_by(user_id=user.id).one()
     assert row.summary_text == "Rolling summary of the conversation so far."
+
+
+@pytest.mark.asyncio
+async def test_process_message_background_customer_note_extraction_actually_runs(
+    db_session, channel_id
+):
+    from tests.conftest import TestSessionLocal
+    from app.db.models import CustomerNote
+
+    user = User(channel_id=channel_id, telegram_user_id="999")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=json.dumps({"allergy": "peanuts", "budget": None, "sugar_ice_level": None})
+            )
+        )
+    ]
+
+    with (
+        patch("app.routers.webhook.run_agent") as mock_run_agent,
+        patch("app.routers.webhook.send_message", new_callable=AsyncMock),
+        patch("app.routers.webhook.edit_message_text", new_callable=AsyncMock),
+        patch("app.routers.webhook.send_chat_action", new_callable=AsyncMock),
+        patch("app.routers.webhook.get_chat_client", return_value=fake_openai),
+        patch("app.routers.webhook.get_embedding_client", return_value=fake_openai),
+        patch("app.db.base.SessionLocal", TestSessionLocal),
+    ):
+
+        def fake_run_agent(state, **kwargs):
+            state.reply = "Welcome!"
+            return state
+
+        mock_run_agent.side_effect = fake_run_agent
+
+        await process_telegram_message(
+            channel_id, "TEST_TOKEN", "999", "999", "I have a peanut allergy", db_session
+        )
+
+        from app.routers.webhook import _background_tasks
+
+        for task in list(_background_tasks):
+            await task
+
+    row = db_session.query(CustomerNote).filter_by(user_id=user.id, note_type="allergy").one()
+    assert row.value == "peanuts"
