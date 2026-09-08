@@ -16,7 +16,7 @@ from app.agent.nodes import (
     summarize_conversation,
 )
 from app.agent.state import AgentState
-from app.db.models import ConversationSummary, Favourite, Message, User
+from app.db.models import ConversationSummary, CustomerNote, Favourite, Message, User
 from app.retry import retry_once
 
 
@@ -107,6 +107,34 @@ def test_fetch_history_summary_is_none_when_no_row_exists(db_session, channel_id
     result = fetch_history(state, db_session)
 
     assert result.summary is None
+
+
+def test_fetch_history_loads_customer_notes(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="210")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    db_session.add(CustomerNote(user_id=user.id, note_type="allergy", value="dairy"))
+    db_session.add(CustomerNote(user_id=user.id, note_type="budget", value="50k VND"))
+    db_session.commit()
+
+    state = AgentState(user_id=user.id, chat_id="210", incoming_text="what's good today?")
+    result = fetch_history(state, db_session)
+
+    assert result.customer_notes == {"allergy": "dairy", "budget": "50k VND"}
+
+
+def test_fetch_history_customer_notes_empty_when_no_rows_exist(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="211")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    state = AgentState(user_id=user.id, chat_id="211", incoming_text="hi")
+    result = fetch_history(state, db_session)
+
+    assert result.customer_notes == {}
 
 
 def _fake_chroma(query_results):
@@ -627,3 +655,29 @@ def test_maybe_summarize_leaves_cursor_unchanged_on_llm_failure(db_session, chan
         maybe_summarize(db_session, user.id, fake_openai, "gpt-4o-mini")
 
     assert db_session.query(ConversationSummary).filter_by(user_id=user.id).count() == 0
+
+
+def test_build_system_prompt_includes_customer_notes_in_fixed_order():
+    state = AgentState(
+        user_id=1,
+        chat_id="1",
+        incoming_text="hi",
+        customer_notes={
+            "sugar_ice_level": "light sugar, extra ice",
+            "allergy": "dairy",
+            "budget": "50k VND per order",
+        },
+    )
+    prompt = nodes._build_system_prompt(state)
+
+    assert "What we know about this customer:" in prompt
+    allergy_pos = prompt.index("dairy")
+    budget_pos = prompt.index("50k VND per order")
+    sugar_pos = prompt.index("light sugar, extra ice")
+    assert allergy_pos < budget_pos < sugar_pos
+
+
+def test_build_system_prompt_omits_customer_notes_section_when_empty():
+    state = AgentState(user_id=1, chat_id="1", incoming_text="hi")
+    prompt = nodes._build_system_prompt(state)
+    assert "What we know about this customer" not in prompt

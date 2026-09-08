@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.agent.clients import get_or_create_collection
 from app.agent.state import AgentState
-from app.db.models import ConversationSummary, Favourite, Message
+from app.db.models import ConversationSummary, CustomerNote, Favourite, Message
 from app.metrics import RETRIEVE_CHUNKS
 from app.retry import retry_once
 from app.token_usage import log_token_usage
@@ -52,6 +52,9 @@ def fetch_history(state: AgentState, db: Session, limit: int = 10) -> AgentState
         select(ConversationSummary).where(ConversationSummary.user_id == state.user_id)
     ).scalar_one_or_none()
     state.summary = summary_row.summary_text if summary_row and summary_row.summary_text else None
+
+    note_rows = db.execute(select(CustomerNote).where(CustomerNote.user_id == state.user_id)).scalars().all()
+    state.customer_notes = {row.note_type: row.value for row in note_rows}
 
     return state
 
@@ -288,9 +291,23 @@ def _build_system_prompt(state: AgentState) -> str:
     summary_section = (
         f"What we know from earlier in this conversation: {state.summary}\n\n" if state.summary else ""
     )
+    notes_section = ""
+    if state.customer_notes:
+        note_labels = {
+            "allergy": "allergic to",
+            "budget": "budget around",
+            "sugar_ice_level": "likes it",
+        }
+        parts = [
+            f"{note_labels[note_type]} {state.customer_notes[note_type]}"
+            for note_type in ("allergy", "budget", "sugar_ice_level")
+            if note_type in state.customer_notes
+        ]
+        notes_section = f"What we know about this customer: {'; '.join(parts)}.\n\n"
     return (
         f"{soul_section}"
         f"{summary_section}"
+        f"{notes_section}"
         "You are a premium matcha and tea ceremony consultant for this specific shop. "
         f"The user's known favourite drinks: {favourites}. "
         f"Relevant knowledge (this is everything the shop actually offers — only recommend from this):\n{context}\n"
