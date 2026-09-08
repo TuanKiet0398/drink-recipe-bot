@@ -69,6 +69,44 @@ def test_put_rejects_an_unknown_provider(client):
     assert response.status_code == 400
 
 
+def test_get_reports_no_daily_token_limit_by_default(client):
+    body = client.get("/admin/llm-settings", auth=AUTH).json()
+    assert body["daily_token_limit"] is None
+
+
+def test_put_saves_daily_token_limit(client):
+    response = client.put(
+        "/admin/llm-settings",
+        auth=AUTH,
+        json={
+            "provider": "openai",
+            "chat_model": "gpt-4o-mini",
+            "base_url": None,
+            "api_key": "k",
+            "daily_token_limit": 50000,
+        },
+    )
+    assert response.status_code == 200
+
+    body = client.get("/admin/llm-settings", auth=AUTH).json()
+    assert body["daily_token_limit"] == 50000
+
+
+def test_put_rejects_a_non_positive_daily_token_limit(client):
+    response = client.put(
+        "/admin/llm-settings",
+        auth=AUTH,
+        json={
+            "provider": "openai",
+            "chat_model": "gpt-4o-mini",
+            "base_url": None,
+            "api_key": "k",
+            "daily_token_limit": 0,
+        },
+    )
+    assert response.status_code == 400
+
+
 def test_put_rejects_ollama_without_a_base_url(client):
     response = client.put(
         "/admin/llm-settings",

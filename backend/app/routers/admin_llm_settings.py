@@ -21,6 +21,8 @@ class SettingsPayload(BaseModel):
     base_url: str | None = None
     # None means "keep whatever is stored"; the UI never sends the saved key back.
     api_key: str | None = None
+    # None means "no per-customer daily cap".
+    daily_token_limit: int | None = None
 
 
 def _validate(payload: SettingsPayload) -> None:
@@ -33,6 +35,8 @@ def _validate(payload: SettingsPayload) -> None:
             raise HTTPException(status_code=400, detail="base_url is required for ollama")
         if not payload.base_url.startswith(("http://", "https://")):
             raise HTTPException(status_code=400, detail="base_url must start with http:// or https://")
+    if payload.daily_token_limit is not None and payload.daily_token_limit <= 0:
+        raise HTTPException(status_code=400, detail="daily_token_limit must be a positive number")
 
 
 def _key_for(payload: SettingsPayload, db: Session) -> str:
@@ -53,6 +57,7 @@ def read_settings(db: Session = Depends(get_db), admin_user: str = Depends(requi
         # The key itself is never serialised, in any form.
         "has_api_key": bool(resolved.api_key),
         "is_default": resolved.is_default,
+        "daily_token_limit": resolved.daily_token_limit,
         "updated_at": row.updated_at.isoformat() if row else None,
         "updated_by": row.updated_by if row else None,
     }
@@ -131,6 +136,7 @@ def update_settings(
         api_key=payload.api_key,
         chat_model=payload.chat_model.strip(),
         updated_by=admin_user,
+        daily_token_limit=payload.daily_token_limit,
     )
     invalidate_chat_client()
 
