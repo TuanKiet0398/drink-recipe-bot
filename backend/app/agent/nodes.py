@@ -166,6 +166,62 @@ def summarize_conversation(
     return (response.choices[0].message.content or "").strip() or old_summary
 
 
+def maybe_summarize(
+    db: Session,
+    user_id: int,
+    chat_client,
+    model: str,
+    threshold: int = 20,
+    raw_window: int = 10,
+) -> None:
+    """Folds messages that have aged out of the raw `raw_window` into the
+    user's rolling summary, once at least `threshold` of them have piled up
+    since the last run. No-ops below threshold or while fewer than
+    `raw_window` messages exist at all (nothing has aged out yet)."""
+    raw_window_ids = (
+        db.execute(
+            select(Message.id)
+            .where(Message.user_id == user_id)
+            .order_by(Message.id.desc())
+            .limit(raw_window)
+        )
+        .scalars()
+        .all()
+    )
+    if len(raw_window_ids) < raw_window:
+        return
+
+    raw_window_boundary_id = min(raw_window_ids)
+
+    existing = db.execute(
+        select(ConversationSummary).where(ConversationSummary.user_id == user_id)
+    ).scalar_one_or_none()
+    last_summarized_id = existing.last_summarized_message_id if existing else None
+
+    query = select(Message).where(Message.user_id == user_id, Message.id < raw_window_boundary_id)
+    if last_summarized_id is not None:
+        query = query.where(Message.id > last_summarized_id)
+    batch = db.execute(query.order_by(Message.id.asc())).scalars().all()
+
+    if len(batch) < threshold:
+        return
+
+    old_summary = existing.summary_text if existing else ""
+    new_summary = summarize_conversation(old_summary, batch, chat_client, model, db, user_id)
+
+    if new_summary == old_summary:
+        # summarize_conversation() falls back to old_summary on LLM failure —
+        # leave the cursor untouched so the same batch is retried next time.
+        return
+
+    if existing is None:
+        existing = ConversationSummary(user_id=user_id)
+        db.add(existing)
+    existing.summary_text = new_summary
+    existing.last_summarized_message_id = batch[-1].id
+    db.commit()
+
+
 def retrieve(
     state: AgentState,
     db: Session,

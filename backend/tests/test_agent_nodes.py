@@ -9,6 +9,7 @@ from app.agent.nodes import (
     extract_favourite,
     fetch_history,
     generate,
+    maybe_summarize,
     rerank,
     retrieve,
     rewrite_query,
@@ -534,3 +535,95 @@ def test_summarize_conversation_falls_back_to_old_summary_when_llm_fails(db_sess
         )
 
     assert result == "existing summary"
+
+
+def _add_messages(db_session, user_id, count, start_content="msg"):
+    for i in range(count):
+        db_session.add(Message(user_id=user_id, role="user", content=f"{start_content} {i}"))
+    db_session.commit()
+
+
+def test_maybe_summarize_noop_below_threshold(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="300")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    _add_messages(db_session, user.id, 25)  # 15 aged out (< 20 threshold), 10 in raw window
+
+    fake_openai = MagicMock()
+    maybe_summarize(db_session, user.id, fake_openai, "gpt-4o-mini")
+
+    fake_openai.chat.completions.create.assert_not_called()
+    assert db_session.query(ConversationSummary).filter_by(user_id=user.id).count() == 0
+
+
+def test_maybe_summarize_runs_at_threshold_and_moves_cursor(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="301")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    _add_messages(db_session, user.id, 30)  # 20 aged out (== threshold), 10 in raw window
+
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content="Summary of first 20 messages."))
+    ]
+
+    maybe_summarize(db_session, user.id, fake_openai, "gpt-4o-mini")
+
+    fake_openai.chat.completions.create.assert_called_once()
+    row = db_session.query(ConversationSummary).filter_by(user_id=user.id).one()
+    assert row.summary_text == "Summary of first 20 messages."
+
+    aged_out_ids = [
+        m.id
+        for m in db_session.query(Message).filter_by(user_id=user.id).order_by(Message.id).all()
+    ][:20]
+    assert row.last_summarized_message_id == aged_out_ids[-1]
+
+
+def test_maybe_summarize_second_run_only_summarizes_new_batch(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="302")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    _add_messages(db_session, user.id, 30)
+
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content="first summary"))
+    ]
+    maybe_summarize(db_session, user.id, fake_openai, "gpt-4o-mini")
+
+    # Not enough new aged-out messages yet for a second run.
+    _add_messages(db_session, user.id, 5, start_content="more")
+    fake_openai.chat.completions.create.reset_mock()
+    maybe_summarize(db_session, user.id, fake_openai, "gpt-4o-mini")
+    fake_openai.chat.completions.create.assert_not_called()
+
+    # Enough new aged-out messages now.
+    _add_messages(db_session, user.id, 15, start_content="even-more")
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content="second summary"))
+    ]
+    maybe_summarize(db_session, user.id, fake_openai, "gpt-4o-mini")
+    fake_openai.chat.completions.create.assert_called_once()
+
+    row = db_session.query(ConversationSummary).filter_by(user_id=user.id).one()
+    assert row.summary_text == "second summary"
+
+
+def test_maybe_summarize_leaves_cursor_unchanged_on_llm_failure(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="303")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    _add_messages(db_session, user.id, 30)
+
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.side_effect = RuntimeError("down")
+
+    with patch("app.retry.time.sleep"):
+        maybe_summarize(db_session, user.id, fake_openai, "gpt-4o-mini")
+
+    assert db_session.query(ConversationSummary).filter_by(user_id=user.id).count() == 0
