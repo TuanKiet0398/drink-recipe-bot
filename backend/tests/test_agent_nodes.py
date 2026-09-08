@@ -6,6 +6,7 @@ import pytest
 
 from app.agent import nodes
 from app.agent.nodes import (
+    extract_customer_notes,
     extract_favourite,
     fetch_history,
     generate,
@@ -681,3 +682,98 @@ def test_build_system_prompt_omits_customer_notes_section_when_empty():
     state = AgentState(user_id=1, chat_id="1", incoming_text="hi")
     prompt = nodes._build_system_prompt(state)
     assert "What we know about this customer" not in prompt
+
+
+def test_extract_customer_notes_creates_a_row_when_a_field_is_detected(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="cn10")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    state = AgentState(
+        user_id=user.id, chat_id="cn10", incoming_text="I'm allergic to dairy, please avoid it"
+    )
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=json.dumps({"allergy": "dairy", "budget": None, "sugar_ice_level": None})
+            )
+        )
+    ]
+
+    extract_customer_notes(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
+
+    row = db_session.query(CustomerNote).filter_by(user_id=user.id, note_type="allergy").one()
+    assert row.value == "dairy"
+    assert db_session.query(CustomerNote).filter_by(user_id=user.id).count() == 1
+
+
+def test_extract_customer_notes_updates_existing_row_instead_of_inserting_a_second_one(
+    db_session, channel_id
+):
+    user = User(channel_id=channel_id, telegram_user_id="cn11")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    db_session.add(CustomerNote(user_id=user.id, note_type="budget", value="50k VND"))
+    db_session.commit()
+
+    state = AgentState(
+        user_id=user.id,
+        chat_id="cn11",
+        incoming_text="actually let's go up to 80k",
+        customer_notes={"budget": "50k VND"},
+    )
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=json.dumps({"allergy": None, "budget": "80k VND", "sugar_ice_level": None})
+            )
+        )
+    ]
+
+    extract_customer_notes(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
+
+    rows = db_session.query(CustomerNote).filter_by(user_id=user.id, note_type="budget").all()
+    assert len(rows) == 1
+    assert rows[0].value == "80k VND"
+
+
+def test_extract_customer_notes_noop_when_nothing_detected(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="cn12")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    state = AgentState(user_id=user.id, chat_id="cn12", incoming_text="what time do you close?")
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=json.dumps({"allergy": None, "budget": None, "sugar_ice_level": None})
+            )
+        )
+    ]
+
+    extract_customer_notes(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
+
+    assert db_session.query(CustomerNote).filter_by(user_id=user.id).count() == 0
+
+
+def test_extract_customer_notes_swallows_malformed_llm_output(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="cn13")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    state = AgentState(user_id=user.id, chat_id="cn13", incoming_text="hi")
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content="not json"))
+    ]
+
+    extract_customer_notes(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
+
+    assert db_session.query(CustomerNote).filter_by(user_id=user.id).count() == 0

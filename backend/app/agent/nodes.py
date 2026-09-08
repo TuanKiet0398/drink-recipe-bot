@@ -391,3 +391,53 @@ def extract_favourite(state: AgentState, db: Session, chat_client, model: str) -
         )
     )
     db.commit()
+
+
+_CUSTOMER_NOTE_TYPES = ("allergy", "budget", "sugar_ice_level")
+
+
+def extract_customer_notes(state: AgentState, db: Session, chat_client, model: str) -> None:
+    """Extracts any of the three fixed customer-profile facts mentioned in
+    the incoming message and upserts them into `customer_notes`. The prompt
+    includes the customer's currently known notes and asks for the complete
+    updated value per field — required because storage is upsert-only, so
+    a value the LLM returns replaces (rather than merges with) what's
+    stored. Silently no-ops on a malformed or empty LLM response, same
+    tolerance as `extract_favourite`."""
+    known = state.customer_notes or {}
+    prompt = (
+        "Extract the customer's allergy, budget, and sugar/ice preference "
+        "from this message, if mentioned. What's already known about this "
+        f"customer: {known or '(nothing yet)'}.\n\n"
+        f"New message: {state.incoming_text!r}\n\n"
+        "For each field, respond with the complete, updated value (combining "
+        "anything already known with anything new in this message), or null "
+        "if that field isn't known at all. Respond with strict JSON: "
+        '{"allergy": "<value>" or null, "budget": "<value>" or null, '
+        '"sugar_ice_level": "<value>" or null}.'
+    )
+    response = chat_client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
+    )
+    log_token_usage(db, state.user_id, "extract_customer_notes", model, response.usage)
+    try:
+        parsed = json.loads(response.choices[0].message.content)
+    except (json.JSONDecodeError, TypeError):
+        return
+
+    for note_type in _CUSTOMER_NOTE_TYPES:
+        value = parsed.get(note_type)
+        if not value:
+            continue
+        existing = db.execute(
+            select(CustomerNote).where(
+                CustomerNote.user_id == state.user_id, CustomerNote.note_type == note_type
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            db.add(CustomerNote(user_id=state.user_id, note_type=note_type, value=value))
+        else:
+            existing.value = value
+    db.commit()
