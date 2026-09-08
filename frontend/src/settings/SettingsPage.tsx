@@ -7,6 +7,7 @@ interface LLMSettings {
   chat_model: string;
   has_api_key: boolean;
   is_default: boolean;
+  daily_token_limit: number | null;
   updated_at: string | null;
   updated_by: string | null;
 }
@@ -23,6 +24,7 @@ interface FormState {
   baseUrl: string;
   apiKey: string;
   chatModel: string;
+  dailyTokenLimit: string;
 }
 
 const fieldClass =
@@ -32,7 +34,13 @@ const OLLAMA_PLACEHOLDER = "http://host.docker.internal:11434/v1";
 
 export function SettingsPage() {
   const [settings, setSettings] = useState<LLMSettings | null>(null);
-  const [form, setForm] = useState<FormState>({ provider: "openai", baseUrl: "", apiKey: "", chatModel: "" });
+  const [form, setForm] = useState<FormState>({
+    provider: "openai",
+    baseUrl: "",
+    apiKey: "",
+    chatModel: "",
+    dailyTokenLimit: "",
+  });
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -52,6 +60,7 @@ export function SettingsPage() {
         baseUrl: data.base_url ?? "",
         apiKey: "",
         chatModel: data.chat_model,
+        dailyTokenLimit: data.daily_token_limit === null ? "" : String(data.daily_token_limit),
       });
       setError(null);
     } catch {
@@ -84,6 +93,7 @@ export function SettingsPage() {
       chat_model: form.chatModel,
       base_url: form.provider === "ollama" ? form.baseUrl : null,
       api_key: form.apiKey === "" ? null : form.apiKey,
+      daily_token_limit: form.dailyTokenLimit === "" ? null : Number(form.dailyTokenLimit),
     };
   }
 
@@ -259,6 +269,22 @@ export function SettingsPage() {
               </span>
             )}
             {modelsError && <span className="text-xs text-red-700">{modelsError}</span>}
+          </span>
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm font-medium text-foreground">
+          Daily token limit per customer
+          <input
+            aria-label="Daily token limit per customer"
+            type="number"
+            min={1}
+            value={form.dailyTokenLimit}
+            onChange={(e) => update({ dailyTokenLimit: e.target.value })}
+            className={fieldClass}
+          />
+          <span className="text-xs text-muted-foreground">
+            Leave blank for no limit. A customer who reaches this gets a polite reply instead of a
+            new reply from the bot until the next day.
           </span>
         </label>
 

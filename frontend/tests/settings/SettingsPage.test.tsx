@@ -13,6 +13,7 @@ const SAVED_SETTINGS = {
   chat_model: "gpt-4o-mini",
   has_api_key: true,
   is_default: false,
+  daily_token_limit: null,
   updated_at: "2026-09-07T10:00:00Z",
   updated_by: "admin",
 };
@@ -183,5 +184,55 @@ describe("SettingsPage", () => {
     const field = await screen.findByLabelText("API key");
     expect(field).toHaveValue("");
     expect(screen.getByText(/leave blank to keep/i)).toBeInTheDocument();
+  });
+
+  it("pre-fills the daily token limit field from the saved value", async () => {
+    server.use(
+      http.get(`${API_BASE}/admin/llm-settings`, () =>
+        HttpResponse.json({ ...SAVED_SETTINGS, daily_token_limit: 50000 })
+      )
+    );
+    render(<SettingsPage />);
+
+    const field = await screen.findByLabelText("Daily token limit per customer");
+    expect(field).toHaveValue(50000);
+  });
+
+  it("sends daily_token_limit as null when the field is left blank", async () => {
+    let sentBody: Record<string, unknown> | null = null;
+    server.use(
+      http.put(`${API_BASE}/admin/llm-settings`, async ({ request }) => {
+        sentBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(SAVED_SETTINGS);
+      })
+    );
+    render(<SettingsPage />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Save" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save anyway" }));
+
+    await waitFor(() => expect(sentBody).not.toBeNull());
+    expect(sentBody!.daily_token_limit).toBeNull();
+  });
+
+  it("sends the typed daily token limit as a number", async () => {
+    let sentBody: Record<string, unknown> | null = null;
+    server.use(
+      http.put(`${API_BASE}/admin/llm-settings`, async ({ request }) => {
+        sentBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(SAVED_SETTINGS);
+      })
+    );
+    render(<SettingsPage />);
+
+    await userEvent.type(
+      await screen.findByLabelText("Daily token limit per customer"),
+      "50000"
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save anyway" }));
+
+    await waitFor(() => expect(sentBody).not.toBeNull());
+    expect(sentBody!.daily_token_limit).toBe(50000);
   });
 });
