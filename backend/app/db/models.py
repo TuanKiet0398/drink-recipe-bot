@@ -24,6 +24,18 @@ class Channel(Base):
     users: Mapped[list["User"]] = relationship(back_populates="channel")
 
 
+class Account(Base):
+    """A web login. The person chats as a `User` on the "web" channel whose
+    telegram_user_id is this username (see app.routers.admin_chat)."""
+
+    __tablename__ = "accounts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String, unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (

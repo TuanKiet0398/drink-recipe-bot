@@ -3,8 +3,24 @@ from unittest.mock import MagicMock
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
-from app.auth import require_admin
+from app.auth import hash_password, require_admin, verify_password
 from app.db.base import get_db
+
+
+def test_verify_password_accepts_the_right_password_only():
+    stored = hash_password("matcha-lover")
+
+    assert verify_password("matcha-lover", stored)
+    assert not verify_password("matcha-lovers", stored)
+
+
+def test_hash_password_salts_each_hash():
+    assert hash_password("same-password") != hash_password("same-password")
+
+
+def test_verify_password_rejects_malformed_stored_values():
+    for stored in ["", "plain-text", "scrypt$nothex$nothex", "bcrypt$00$00", None]:
+        assert not verify_password("anything", stored)
 
 
 def test_require_admin_rejects_bad_credentials(monkeypatch):

@@ -18,6 +18,7 @@ from app.routers import (
     admin_soul,
     admin_usage,
     admin_users,
+    auth_register,
     health,
     metrics,
 )
@@ -63,6 +64,7 @@ app.include_router(admin_logs.router)
 app.include_router(admin_llm_settings.router)
 app.include_router(admin_soul.router)
 app.include_router(admin_usage.router)
+app.include_router(auth_register.router)
 app.include_router(metrics.router)
 
 # HTTP-level latency/status metrics. `expose()` is not called — the /metrics
