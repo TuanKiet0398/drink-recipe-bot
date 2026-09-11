@@ -2,8 +2,7 @@ from pydantic import BaseModel, Field
 
 
 class AgentState(BaseModel):
-    # None for the admin test chat, which has no customer behind it.
-    user_id: int | None
+    user_id: int
     chat_id: str
     incoming_text: str
     history: list[dict] = Field(default_factory=list)

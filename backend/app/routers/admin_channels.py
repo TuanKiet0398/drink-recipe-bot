@@ -99,7 +99,10 @@ async def test_connection(
 
 @router.get("")
 def list_channels(db: Session = Depends(get_db), admin_user: str = Depends(require_admin)):
-    channels = db.query(Channel).order_by(Channel.created_at.desc()).all()
+    # The "web" channel backs in-panel chat accounts; it is not editable here.
+    channels = (
+        db.query(Channel).filter(Channel.channel_type != "web").order_by(Channel.created_at.desc()).all()
+    )
     return [_serialize(c) for c in channels]
 
 

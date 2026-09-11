@@ -209,23 +209,24 @@ async def process_telegram_message(
 
     record_telegram_message(channel_id, "out")
 
-    favourite_task = asyncio.create_task(_extract_favourite_background(state, user.id))
-    _background_tasks.add(favourite_task)
-    favourite_task.add_done_callback(_background_tasks.discard)
-
-    summarize_task = asyncio.create_task(_maybe_summarize_background(user.id))
-    _background_tasks.add(summarize_task)
-    summarize_task.add_done_callback(_background_tasks.discard)
-
-    customer_notes_task = asyncio.create_task(_extract_customer_notes_background(state, user.id))
-    _background_tasks.add(customer_notes_task)
-    customer_notes_task.add_done_callback(_background_tasks.discard)
-
-    recommendation_task = asyncio.create_task(_extract_recommendation_background(state, user.id))
-    _background_tasks.add(recommendation_task)
-    recommendation_task.add_done_callback(_background_tasks.discard)
+    spawn_background_extractions(state, user.id)
 
     return {}
+
+
+def spawn_background_extractions(state: AgentState, user_id: int) -> None:
+    """Starts the post-turn memory work (favourite, summary, customer notes,
+    recommendation) as fire-and-forget tasks. Shared by Telegram and web chat;
+    must be called from inside the running event loop."""
+    for coroutine in (
+        _extract_favourite_background(state, user_id),
+        _maybe_summarize_background(user_id),
+        _extract_customer_notes_background(state, user_id),
+        _extract_recommendation_background(state, user_id),
+    ):
+        task = asyncio.create_task(coroutine)
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
 
 
 async def _extract_favourite_background(state: AgentState, user_id: int) -> None:
