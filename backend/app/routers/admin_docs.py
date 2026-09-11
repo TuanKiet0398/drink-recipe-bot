@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
 
@@ -38,8 +40,17 @@ async def upload_doc(
         raise HTTPException(status_code=413, detail="File exceeds the 5MB upload limit")
 
     text = raw.decode("utf-8", errors="ignore")
-    chunks = chunk_document(
-        text, filename, chat_client=get_chat_client(db), chat_model=get_chat_model(db), db=db
+    # chunk_document and embed_and_upsert make blocking OpenAI/Chroma calls;
+    # run them off the event loop thread so a large upload's chunking time
+    # doesn't stall every other request the single uvicorn process is
+    # serving (health checks, other admin pages, the chat webhook).
+    chunks = await asyncio.to_thread(
+        chunk_document,
+        text,
+        filename,
+        chat_client=get_chat_client(db),
+        chat_model=get_chat_model(db),
+        db=db,
     )
 
     doc = Document(filename=filename, chunk_count=len(chunks))
@@ -47,7 +58,8 @@ async def upload_doc(
     db.commit()
     db.refresh(doc)
 
-    embed_and_upsert(
+    await asyncio.to_thread(
+        embed_and_upsert,
         chunks=chunks,
         filename=filename,
         document_id=doc.id,
