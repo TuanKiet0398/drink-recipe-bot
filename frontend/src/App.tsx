@@ -3,6 +3,7 @@ import { AuthProvider } from "./auth/AuthContext";
 import { LoginPage } from "./auth/LoginPage";
 import { RequireAuth } from "./auth/RequireAuth";
 import { AppShell } from "./layout/AppShell";
+import { ChatPage } from "./chat/ChatPage";
 import { DocsPage } from "./docs/DocsPage";
 import { UsersPage } from "./users/UsersPage";
 import { AccessLogPage } from "./logs/AccessLogPage";
@@ -29,6 +30,7 @@ export function App() {
             }
           >
             <Route index element={<Navigate to="/panel/usage" replace />} />
+            <Route path="chat" element={<ChatPage />} />
             <Route path="docs" element={<DocsPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="logs/access" element={<AccessLogPage />} />
