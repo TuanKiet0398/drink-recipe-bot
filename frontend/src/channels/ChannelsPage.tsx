@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiFetch, ApiError } from "../api/client";
+import { apiFetch, ApiError, readableError } from "../api/client";
 
 interface Channel {
   id: number;
@@ -18,18 +18,6 @@ const CHANNEL_TYPES: { value: string; label: string; enabled: boolean }[] = [
 const EMPTY_FORM = { key: "", display_name: "", channel_type: "telegram", bot_token: "" };
 
 type TestResult = { ok: true; username: string } | { ok: false; message: string };
-
-function readableError(err: unknown, fallback: string): string {
-  if (err instanceof ApiError && err.message) {
-    try {
-      const parsed = JSON.parse(err.message);
-      if (typeof parsed.detail === "string") return parsed.detail;
-    } catch {
-      return err.message;
-    }
-  }
-  return fallback;
-}
 
 export function ChannelsPage() {
   const [channels, setChannels] = useState<Channel[]>([]);

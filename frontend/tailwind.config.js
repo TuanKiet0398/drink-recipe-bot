@@ -18,9 +18,27 @@ export default {
         muted: "#F1EFE7",
         "muted-foreground": "#6B7566",
         foreground: "#22291F",
+        // Admin panel palette (references/Matcha Admin Redesign.dc.html).
+        // Kept separate so the landing and login pages don't change.
+        admin: {
+          primary: "#3E6B37",
+          "primary-dark": "#2C4F27",
+          "primary-light": "#E4EEDD",
+          bg: "#F5F7F1",
+          border: "#DCE3D4",
+          divider: "#ECEFE6",
+          fg: "#1C2A1F",
+          "fg-2": "#33422F",
+          muted: "#55604D",
+          label: "#7C8874",
+          danger: "#B91C1C",
+          "danger-light": "#FEF2F2",
+          "danger-border": "#F3C6C6",
+        },
       },
       boxShadow: {
         card: "0 1px 2px 0 rgb(0 0 0 / 0.04), 0 1px 3px 0 rgb(0 0 0 / 0.06)",
+        "admin-card": "0 1px 2px rgba(28, 42, 31, 0.06)",
       },
       keyframes: {
         "float-a": {

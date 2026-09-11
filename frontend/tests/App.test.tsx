@@ -60,4 +60,18 @@ describe("App", () => {
 
     await waitFor(() => expect(screen.getByText("Admin Login")).toBeInTheDocument());
   });
+
+  it("shows the signed-in username and logs out back to the login page", async () => {
+    server.use(http.get(`${API_BASE}/admin/docs`, () => HttpResponse.json([])));
+    render(<App />);
+    await userEvent.type(await screen.findByLabelText("Username"), "admin");
+    await userEvent.type(screen.getByLabelText("Password"), "admin");
+    await userEvent.click(screen.getByRole("button", { name: "Log in" }));
+    await waitFor(() => expect(screen.getByText("Documents & Recipes")).toBeInTheDocument());
+
+    expect(screen.getByText("admin")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Log out" }));
+
+    await waitFor(() => expect(screen.getByText("Admin Login")).toBeInTheDocument());
+  });
 });

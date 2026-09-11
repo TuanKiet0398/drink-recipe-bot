@@ -3,6 +3,7 @@ import { clearCredentials, getStoredCredentials, login as apiLogin, onUnauthoriz
 
 interface AuthContextValue {
   isAuthenticated: boolean;
+  username: string | null;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
 }
@@ -10,24 +11,26 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => getStoredCredentials() !== null);
+  const [username, setUsername] = useState<string | null>(() => getStoredCredentials()?.username ?? null);
 
   useEffect(() => {
-    return onUnauthorized(() => setIsAuthenticated(false));
+    return onUnauthorized(() => setUsername(null));
   }, []);
 
-  async function login(username: string, password: string): Promise<void> {
-    await apiLogin(username, password);
-    setIsAuthenticated(true);
+  async function login(name: string, password: string): Promise<void> {
+    await apiLogin(name, password);
+    setUsername(name);
   }
 
   function logout(): void {
     clearCredentials();
-    setIsAuthenticated(false);
+    setUsername(null);
   }
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, login, logout }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ isAuthenticated: username !== null, username, login, logout }}>
+      {children}
+    </AuthContext.Provider>
   );
 }
 

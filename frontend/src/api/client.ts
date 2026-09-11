@@ -13,6 +13,19 @@ export class ApiError extends Error {
   }
 }
 
+/** The server's `detail` string from a failed request, else `fallback`. */
+export function readableError(err: unknown, fallback: string): string {
+  if (err instanceof ApiError && err.message) {
+    try {
+      const parsed = JSON.parse(err.message);
+      if (typeof parsed.detail === "string") return parsed.detail;
+    } catch {
+      return err.message;
+    }
+  }
+  return fallback;
+}
+
 function apiBase(): string {
   return import.meta.env.VITE_API_BASE_URL ?? "";
 }
