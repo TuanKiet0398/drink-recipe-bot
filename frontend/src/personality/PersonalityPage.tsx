@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api/client";
+import * as s from "../layout/styles";
 
 interface SoulResponse {
   content: string;
@@ -43,25 +44,25 @@ export function PersonalityPage() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex max-w-[640px] flex-col gap-4">
       <div>
-        <h1 className="text-xl font-semibold text-foreground">Personality</h1>
-        <p className="text-sm text-muted-foreground">
+        <h1 className={s.pageTitle}>Personality</h1>
+        <p className={s.pageDescription}>
           What the bot sounds like when it talks to customers. Changes take effect on the next
           message — no restart needed.
         </p>
       </div>
 
       {error && (
-        <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className={s.alertError}>
           {error}
         </p>
       )}
 
-      {saved && <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-800">Saved.</p>}
+      {saved && <p className={s.alertSuccess}>Saved.</p>}
 
-      <div className="flex max-w-2xl flex-col gap-4 rounded-lg border border-border bg-card p-5 shadow-card">
-        <label className="flex flex-col gap-1 text-sm font-medium text-foreground">
+      <div className={`${s.card} flex flex-col gap-3.5 p-5`}>
+        <label className={s.fieldLabel}>
           Bot personality
           <textarea
             aria-label="Bot personality"
@@ -71,15 +72,11 @@ export function PersonalityPage() {
               setSaved(false);
             }}
             rows={16}
-            className="rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
+            className={`${s.input} resize-y font-[inherit]`}
           />
         </label>
 
-        <button
-          onClick={save}
-          disabled={saving}
-          className="w-fit rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
-        >
+        <button onClick={save} disabled={saving} className={`${s.btnPrimary} w-fit`}>
           Save
         </button>
       </div>
