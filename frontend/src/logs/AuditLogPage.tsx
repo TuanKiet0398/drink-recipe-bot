@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api/client";
+import * as s from "../layout/styles";
 
 interface AuditLogEntry {
   id: number;
@@ -13,12 +14,12 @@ const PAGE_SIZE = 20;
 
 function actionBadgeClass(action: string): string {
   if (action.startsWith("delete_") || action.startsWith("clear_")) {
-    return "bg-red-50 text-red-700";
+    return s.badgeDanger;
   }
   if (action === "login_failed") {
-    return "bg-amber-50 text-amber-700";
+    return s.badgeWarning;
   }
-  return "bg-primary-light text-primary-dark";
+  return s.badgeSuccess;
 }
 
 function relativeTime(iso: string): string {
@@ -91,28 +92,25 @@ export function AuditLogPage() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">Audit Log</h1>
-          <p className="text-sm text-muted-foreground">Admin actions taken in this panel.</p>
+          <h1 className={s.pageTitle}>Audit Log</h1>
+          <p className={s.pageDescription}>Admin actions taken in this panel.</p>
         </div>
-        <button
-          onClick={clearAll}
-          className="rounded-md border border-red-200 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
-        >
+        <button onClick={clearAll} className={s.btnDanger}>
           Clear all
         </button>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2.5">
         <select
           value={actionFilter}
           onChange={(e) => {
             setOffset(0);
             setActionFilter(e.target.value);
           }}
-          className="rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground"
+          className={s.input}
         >
           <option value="">All actions</option>
           {actions.map((a) => (
@@ -128,16 +126,16 @@ export function AuditLogPage() {
             setSearch(e.target.value);
           }}
           placeholder="Search target or IP…"
-          className="min-w-[220px] flex-1 rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground"
+          className={`${s.input} min-w-[220px] flex-1`}
         />
       </div>
 
       {error && (
-        <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className={s.alertError}>
           {error}
         </p>
       )}
-      <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-card">
+      <div className={`${s.card} overflow-x-auto`}>
         <table className="w-full">
           <thead>
             <tr>
@@ -151,13 +149,13 @@ export function AuditLogPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={5} className={s.emptyCell}>
                   Loading audit log…
                 </td>
               </tr>
             ) : entries.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={5} className={s.emptyCell}>
                   No audit log entries yet.
                 </td>
               </tr>
@@ -165,23 +163,16 @@ export function AuditLogPage() {
               entries.map((entry) => (
                 <tr key={entry.id}>
                   <td>
-                    <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${actionBadgeClass(entry.action)}`}
-                    >
-                      {entry.action}
-                    </span>
+                    <span className={actionBadgeClass(entry.action)}>{entry.action}</span>
                   </td>
-                  <td className="font-medium text-foreground">{entry.target}</td>
-                  <td className="text-muted-foreground">{entry.ip}</td>
-                  <td className="text-muted-foreground">
+                  <td className="font-semibold">{entry.target}</td>
+                  <td className="text-admin-muted">{entry.ip}</td>
+                  <td className="text-admin-muted">
                     <div>{entry.created_at}</div>
                     <div className="text-xs">{relativeTime(entry.created_at)}</div>
                   </td>
                   <td>
-                    <button
-                      onClick={() => deleteEntry(entry.id)}
-                      className="rounded px-2 py-1 text-sm font-medium text-red-700 hover:bg-red-50"
-                    >
+                    <button onClick={() => deleteEntry(entry.id)} className={s.btnGhostDanger}>
                       Delete
                     </button>
                   </td>
@@ -195,14 +186,14 @@ export function AuditLogPage() {
         <button
           disabled={offset === 0}
           onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
-          className="rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          className={s.btnSecondary}
         >
           Previous
         </button>
         <button
           disabled={!error && entries.length < PAGE_SIZE}
           onClick={() => setOffset(offset + PAGE_SIZE)}
-          className="rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          className={s.btnSecondary}
         >
           Next
         </button>

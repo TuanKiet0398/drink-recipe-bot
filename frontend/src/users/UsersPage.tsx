@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api/client";
+import * as s from "../layout/styles";
 
 interface AdminUser {
   id: number;
@@ -42,17 +43,17 @@ export function UsersPage() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       <div>
-        <h1 className="text-xl font-semibold text-foreground">Users</h1>
-        <p className="text-sm text-muted-foreground">Telegram users who have messaged the bot.</p>
+        <h1 className={s.pageTitle}>Users</h1>
+        <p className={s.pageDescription}>Telegram users who have messaged the bot.</p>
       </div>
       {error && (
-        <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className={s.alertError}>
           {error}
         </p>
       )}
-      <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-card">
+      <div className={`${s.card} overflow-x-auto`}>
         <table className="w-full">
           <thead>
             <tr>
@@ -66,36 +67,29 @@ export function UsersPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={5} className={s.emptyCell}>
                   Loading users…
                 </td>
               </tr>
             ) : users.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={5} className={s.emptyCell}>
                   No users yet — they will appear once someone messages the bot.
                 </td>
               </tr>
             ) : (
               users.map((user) => (
                 <tr key={user.id}>
-                  <td className="font-medium text-foreground">{user.telegram_user_id}</td>
+                  <td className="font-semibold">{user.telegram_user_id}</td>
                   <td>{user.message_count}</td>
-                  <td className="text-muted-foreground">{user.favourites.join(", ") || "—"}</td>
+                  <td className="text-admin-muted">{user.favourites.join(", ") || "—"}</td>
                   <td>
-                    <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                        user.blocked ? "bg-red-50 text-red-700" : "bg-primary-light text-primary-dark"
-                      }`}
-                    >
+                    <span className={user.blocked ? s.badgeDanger : s.badgeSuccess}>
                       {user.blocked ? "Blocked" : "Active"}
                     </span>
                   </td>
                   <td>
-                    <button
-                      onClick={() => toggleBlock(user)}
-                      className="rounded px-2 py-1 text-sm font-medium text-primary hover:bg-primary-light"
-                    >
+                    <button onClick={() => toggleBlock(user)} className={s.btnGhostPrimary}>
                       {user.blocked ? "Unblock" : "Block"}
                     </button>
                   </td>

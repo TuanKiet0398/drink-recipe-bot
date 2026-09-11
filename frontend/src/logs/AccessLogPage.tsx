@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api/client";
+import * as s from "../layout/styles";
 
 interface AccessLogEntry {
   id: number;
@@ -34,8 +35,7 @@ function buildQuery(offset: number, filters: Filters): string {
   return params.toString();
 }
 
-const selectClass =
-  "rounded-md border border-border bg-card px-2 py-1.5 text-sm text-foreground focus:border-primary focus:outline-none";
+const filterLabel = "flex flex-col gap-1 text-xs font-semibold text-admin-muted";
 
 export function AccessLogPage() {
   const [entries, setEntries] = useState<AccessLogEntry[]>([]);
@@ -78,37 +78,37 @@ export function AccessLogPage() {
   const hasActiveFilters = Object.values(filters).some(Boolean);
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       <div>
-        <h1 className="text-xl font-semibold text-foreground">Access Log</h1>
-        <p className="text-sm text-muted-foreground">Messages exchanged between users and the bot.</p>
+        <h1 className={s.pageTitle}>Access Log</h1>
+        <p className={s.pageDescription}>Messages exchanged between users and the bot.</p>
       </div>
       {error && (
-        <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className={s.alertError}>
           {error}
         </p>
       )}
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+      <div className="flex flex-wrap items-end gap-2.5">
+        <label className={filterLabel}>
           Role
           <select
             aria-label="Role"
             value={filters.role}
             onChange={(e) => updateFilter({ role: e.target.value })}
-            className={selectClass}
+            className={s.input}
           >
             <option value="">All roles</option>
             <option value="user">User</option>
             <option value="assistant">Assistant</option>
           </select>
         </label>
-        <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+        <label className={filterLabel}>
           Customer
           <select
             aria-label="Customer"
             value={filters.telegramUserId}
             onChange={(e) => updateFilter({ telegramUserId: e.target.value })}
-            className={selectClass}
+            className={s.input}
           >
             <option value="">All customers</option>
             {users.map((u) => (
@@ -118,34 +118,31 @@ export function AccessLogPage() {
             ))}
           </select>
         </label>
-        <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+        <label className={filterLabel}>
           From
           <input
             aria-label="From"
             type="date"
             value={filters.fromDate}
             onChange={(e) => updateFilter({ fromDate: e.target.value })}
-            className={selectClass}
+            className={s.input}
           />
         </label>
-        <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+        <label className={filterLabel}>
           To
           <input
             aria-label="To"
             type="date"
             value={filters.toDate}
             onChange={(e) => updateFilter({ toDate: e.target.value })}
-            className={selectClass}
+            className={s.input}
           />
         </label>
-        <button
-          onClick={() => updateFilter(EMPTY_FILTERS)}
-          className="rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted"
-        >
+        <button onClick={() => updateFilter(EMPTY_FILTERS)} className={s.btnSecondary}>
           Clear filters
         </button>
       </div>
-      <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-card">
+      <div className={`${s.card} overflow-x-auto`}>
         <table className="w-full">
           <thead>
             <tr>
@@ -158,13 +155,13 @@ export function AccessLogPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={4} className={s.emptyCell}>
                   Loading access log…
                 </td>
               </tr>
             ) : entries.length === 0 ? (
               <tr>
-                <td colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={4} className={s.emptyCell}>
                   {hasActiveFilters
                     ? "No access log entries match these filters."
                     : "No access log entries yet."}
@@ -173,16 +170,14 @@ export function AccessLogPage() {
             ) : (
               entries.map((entry) => (
                 <tr key={entry.id}>
-                  <td className="font-medium text-foreground">{entry.telegram_user_id}</td>
+                  <td className="font-semibold">{entry.telegram_user_id}</td>
                   <td>
-                    <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                      {entry.role}
-                    </span>
+                    <span className={s.badgeNeutral}>{entry.role}</span>
                   </td>
-                  <td className="max-w-md truncate" title={entry.content}>
+                  <td className="max-w-[360px] truncate" title={entry.content}>
                     {entry.content}
                   </td>
-                  <td className="text-muted-foreground">{entry.created_at}</td>
+                  <td className="text-admin-muted">{entry.created_at}</td>
                 </tr>
               ))
             )}
@@ -193,14 +188,14 @@ export function AccessLogPage() {
         <button
           disabled={offset === 0}
           onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
-          className="rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          className={s.btnSecondary}
         >
           Previous
         </button>
         <button
           disabled={!error && entries.length < PAGE_SIZE}
           onClick={() => setOffset(offset + PAGE_SIZE)}
-          className="rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          className={s.btnSecondary}
         >
           Next
         </button>
