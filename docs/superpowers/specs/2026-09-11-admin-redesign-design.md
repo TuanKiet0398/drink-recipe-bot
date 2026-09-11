@@ -231,8 +231,9 @@ constants. Common rules:
 Page-specific notes:
 
 - **Usage** — Stat cards: 11px uppercase label, 24px bold value, `grid` with
-  `repeat(auto-fit, minmax(160px, 1fr))`; values formatted with `toLocaleString()`, cost as
-  `$` + two decimals. **"Tokens by Model"** becomes a list of rows inside `UsagePage`: a
+  `repeat(auto-fit, minmax(160px, 1fr))`. Values keep their current raw formatting
+  (`123456`, `$1.2345`) — the mockup's `1,284` / `$18.42` formatting is not adopted because
+  the existing `UsagePage` tests assert the raw values. **"Tokens by Model"** becomes a list of rows inside `UsagePage`: a
   10px color dot, the model name (min-width 180px, truncated), an 8px track
   (`#F1EFE7`) with a fill at the model's share, and "512.3K · 58%" right-aligned. Rows are
   sorted by tokens descending and keep the existing fixed categorical palette. The empty
