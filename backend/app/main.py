@@ -11,6 +11,7 @@ from app.db.base import SessionLocal
 from app.retention import run_retention_loop
 from app.routers import (
     admin_channels,
+    admin_chat,
     admin_docs,
     admin_llm_settings,
     admin_logs,
@@ -54,6 +55,7 @@ app = FastAPI(title="Matcha Bot Backend", lifespan=lifespan)
 
 app.include_router(health.router)
 app.include_router(admin_channels.router)
+app.include_router(admin_chat.router)
 app.include_router(admin_docs.router)
 app.include_router(admin_users.router)
 app.include_router(admin_users.login_router)
