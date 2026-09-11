@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.agent.clients import get_or_create_collection
 from app.agent.state import AgentState
-from app.db.models import ConversationSummary, CustomerNote, Favourite, Message
-from app.metrics import RETRIEVE_CHUNKS
+from app.db.models import ConversationSummary, CustomerNote, Favourite, Message, RecommendationHistory
+from app.metrics import RETRIEVE_CHUNKS, record_extraction, record_summarize
 from app.retry import retry_once
 from app.token_usage import log_token_usage
 
@@ -54,6 +54,21 @@ def fetch_history(state: AgentState, db: Session, limit: int = 10) -> AgentState
 
     note_rows = db.execute(select(CustomerNote).where(CustomerNote.user_id == state.user_id)).scalars().all()
     state.customer_notes = {row.note_type: row.value for row in note_rows}
+
+    recommendation_rows = (
+        db.execute(
+            select(RecommendationHistory)
+            .where(RecommendationHistory.user_id == state.user_id)
+            .order_by(RecommendationHistory.updated_at.desc())
+            .limit(5)
+        )
+        .scalars()
+        .all()
+    )
+    state.recommendation_history = [
+        f"{row.product_name} ({row.reason})" if row.reason else row.product_name
+        for row in recommendation_rows
+    ]
 
     return state
 
@@ -191,6 +206,7 @@ def maybe_summarize(
         .all()
     )
     if len(raw_window_ids) < raw_window:
+        record_summarize("skipped")
         return
 
     raw_window_boundary_id = min(raw_window_ids)
@@ -206,6 +222,7 @@ def maybe_summarize(
     batch = db.execute(query.order_by(Message.id.asc())).scalars().all()
 
     if len(batch) < threshold:
+        record_summarize("skipped")
         return
 
     old_summary = existing.summary_text if existing else ""
@@ -214,6 +231,7 @@ def maybe_summarize(
     if new_summary == old_summary:
         # summarize_conversation() falls back to old_summary on LLM failure —
         # leave the cursor untouched so the same batch is retried next time.
+        record_summarize("failed")
         return
 
     if existing is None:
@@ -222,6 +240,7 @@ def maybe_summarize(
     existing.summary_text = new_summary
     existing.last_summarized_message_id = batch[-1].id
     db.commit()
+    record_summarize("ran")
 
 
 def retrieve(
@@ -303,10 +322,20 @@ def _build_system_prompt(state: AgentState) -> str:
             if note_type in state.customer_notes
         ]
         notes_section = f"What we know about this customer: {'; '.join(parts)}.\n\n"
+    recommendation_section = ""
+    if state.recommendation_history:
+        recs = "; ".join(state.recommendation_history)
+        recommendation_section = (
+            f"Products previously recommended to this customer: {recs}. "
+            "This is a past conversation record only, not part of the shop's menu — "
+            "do not re-recommend any of these unless it also appears in the knowledge "
+            "block below.\n\n"
+        )
     return (
         f"{soul_section}"
         f"{summary_section}"
         f"{notes_section}"
+        f"{recommendation_section}"
         "You are a premium matcha and tea ceremony consultant for this specific shop. "
         f"The user's known favourite drinks: {favourites}. "
         f"Relevant knowledge (this is everything the shop actually offers — only recommend from this):\n{context}\n"
@@ -318,7 +347,11 @@ def _build_system_prompt(state: AgentState) -> str:
         "If the knowledge above says '(no matching knowledge found)', you MUST tell the user "
         "the shop doesn't have a recipe for that and offer to suggest something from what the "
         "shop does have — do not describe how to make the drink they asked about under any "
-        "circumstances in that case."
+        "circumstances in that case. This applies even if you know a real drink (from your own "
+        "general knowledge, not from the knowledge above) that would fit the customer's need — "
+        "naming any specific drink not in the knowledge above is a critical failure, not a "
+        "helpful shortcut. In that case, say plainly that the shop doesn't have a specific "
+        "recommendation for this, without naming any drink at all."
     )
 
 
@@ -379,17 +412,80 @@ def extract_favourite(state: AgentState, db: Session, chat_client, model: str) -
 
     drink_name = parsed.get("drink_name")
     if not drink_name:
+        record_extraction("favourite", "noop")
         return
 
-    db.add(
-        Favourite(
-            user_id=state.user_id,
-            drink_name=drink_name,
-            confidence="inferred",
-            source="chat",
+    existing = db.execute(
+        select(Favourite).where(Favourite.user_id == state.user_id, Favourite.drink_name == drink_name)
+    ).scalar_one_or_none()
+    if existing is None:
+        db.add(
+            Favourite(
+                user_id=state.user_id,
+                drink_name=drink_name,
+                confidence="inferred",
+                source="chat",
+            )
         )
-    )
     db.commit()
+    record_extraction("favourite", "detected")
+
+
+def extract_recommendation(state: AgentState, db: Session, chat_client, model: str) -> None:
+    """Extracts the specific product the AGENT itself recommended in
+    `state.reply` (not the customer's message) and upserts it into
+    `recommendation_history`, so a later "what did you recommend/did I buy
+    last time" question can be answered from context. No-ops if the reply
+    named no specific product, or if there's no reply yet."""
+    if not state.reply:
+        return
+    prompt = (
+        "Below is a matcha/tea shop consultant bot's own reply to a customer. "
+        "Extract whether it recommended one specific product/drink from the "
+        "shop, and a short reason why, if any.\n\n"
+        f"Reply: {state.reply!r}\n\n"
+        'Respond with strict JSON: {"product_name": "<name>", "reason": "<short reason>"} '
+        'or {"product_name": null, "reason": null} if no specific product was recommended.'
+    )
+    response = chat_client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
+    )
+    log_token_usage(db, state.user_id, "extract_recommendation", model, response.usage)
+    try:
+        parsed = json.loads(response.choices[0].message.content)
+    except (json.JSONDecodeError, TypeError):
+        return
+
+    product_name = parsed.get("product_name")
+    if not product_name:
+        record_extraction("recommendation", "noop")
+        return
+
+    # Only remember products the knowledge base actually backs. Without this,
+    # a hallucinated product gets stored and then re-injected into every later
+    # system prompt (see _build_system_prompt), which teaches the bot to keep
+    # suggesting something the shop doesn't sell.
+    knowledge = "\n".join(state.retrieved_chunks).lower()
+    if product_name.lower() not in knowledge:
+        record_extraction("recommendation", "ungrounded")
+        return
+
+    reason = parsed.get("reason") or ""
+
+    existing = db.execute(
+        select(RecommendationHistory).where(
+            RecommendationHistory.user_id == state.user_id,
+            RecommendationHistory.product_name == product_name,
+        )
+    ).scalar_one_or_none()
+    if existing is None:
+        db.add(RecommendationHistory(user_id=state.user_id, product_name=product_name, reason=reason))
+    else:
+        existing.reason = reason
+    db.commit()
+    record_extraction("recommendation", "detected")
 
 
 _CUSTOMER_NOTE_TYPES = ("allergy", "budget", "sugar_ice_level")
@@ -426,10 +522,12 @@ def extract_customer_notes(state: AgentState, db: Session, chat_client, model: s
     except (json.JSONDecodeError, TypeError):
         return
 
+    detected = False
     for note_type in _CUSTOMER_NOTE_TYPES:
         value = parsed.get(note_type)
         if not value:
             continue
+        detected = True
         existing = db.execute(
             select(CustomerNote).where(
                 CustomerNote.user_id == state.user_id, CustomerNote.note_type == note_type
@@ -440,3 +538,4 @@ def extract_customer_notes(state: AgentState, db: Session, chat_client, model: s
         else:
             existing.value = value
     db.commit()
+    record_extraction("customer_notes", "detected" if detected else "noop")

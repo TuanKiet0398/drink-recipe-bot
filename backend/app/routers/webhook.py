@@ -8,10 +8,15 @@ from sqlalchemy.orm import Session
 from app import llm_settings
 from app.agent.clients import get_chat_client, get_chat_model, get_chroma_client, get_embedding_client
 from app.agent.graph import run_agent
-from app.agent.nodes import extract_customer_notes, extract_favourite, maybe_summarize
+from app.agent.nodes import (
+    extract_customer_notes,
+    extract_favourite,
+    extract_recommendation,
+    maybe_summarize,
+)
 from app.agent.state import AgentState
 from app.db.models import Message, User
-from app.metrics import record_telegram_message
+from app.metrics import record_daily_limit_hit, record_extraction, record_summarize, record_telegram_message
 from app.telegram_client import edit_message_text, send_chat_action, send_message
 from app.token_usage import get_daily_token_total
 
@@ -135,6 +140,7 @@ async def process_telegram_message(
         except Exception:
             logger.exception("send_message failed for user_id=%s", user.id)
         record_telegram_message(channel_id, "out")
+        record_daily_limit_hit(channel_id)
         return {}
 
     state = AgentState(user_id=user.id, chat_id=chat_id, incoming_text=text)
@@ -170,15 +176,25 @@ async def process_telegram_message(
             on_delta=deliverer.on_delta,
         )
         reply = result.reply or FALLBACK_REPLY
+        retrieved_chunks = result.retrieved_chunks
     except Exception:
         logger.exception("Agent run failed for user_id=%s", user.id)
         reply = FALLBACK_REPLY
+        retrieved_chunks = []
     finally:
         keepalive_task.cancel()
         try:
             await keepalive_task
         except asyncio.CancelledError:
             pass
+
+    # run_agent returns a new AgentState (graph.py), so the pre-run `state`
+    # object still has reply=="" and no retrieved chunks — carry both over so
+    # the background extractors (which take `state`, not `result`) can read
+    # them. extract_recommendation needs the chunks to check that what it is
+    # about to remember is actually backed by the knowledge base.
+    state.reply = reply
+    state.retrieved_chunks = retrieved_chunks
 
     db.add(Message(user_id=user.id, role="assistant", content=reply))
     db.commit()
@@ -205,6 +221,10 @@ async def process_telegram_message(
     _background_tasks.add(customer_notes_task)
     customer_notes_task.add_done_callback(_background_tasks.discard)
 
+    recommendation_task = asyncio.create_task(_extract_recommendation_background(state, user.id))
+    _background_tasks.add(recommendation_task)
+    recommendation_task.add_done_callback(_background_tasks.discard)
+
     return {}
 
 
@@ -224,6 +244,7 @@ async def _extract_favourite_background(state: AgentState, user_id: int) -> None
         )
     except Exception:
         logger.exception("extract_favourite failed for user_id=%s", user_id)
+        record_extraction("favourite", "error")
     finally:
         db.close()
 
@@ -244,6 +265,7 @@ async def _maybe_summarize_background(user_id: int) -> None:
         )
     except Exception:
         logger.exception("maybe_summarize failed for user_id=%s", user_id)
+        record_summarize("error")
     finally:
         db.close()
 
@@ -265,5 +287,28 @@ async def _extract_customer_notes_background(state: AgentState, user_id: int) ->
         )
     except Exception:
         logger.exception("extract_customer_notes failed for user_id=%s", user_id)
+        record_extraction("customer_notes", "error")
+    finally:
+        db.close()
+
+
+async def _extract_recommendation_background(state: AgentState, user_id: int) -> None:
+    from app.db.base import SessionLocal
+
+    db = SessionLocal()
+    try:
+        # extract_recommendation makes a blocking OpenAI call; run it off
+        # the event loop thread so it doesn't stall other concurrent
+        # requests.
+        await asyncio.to_thread(
+            extract_recommendation,
+            state,
+            db=db,
+            chat_client=get_chat_client(db),
+            model=get_chat_model(db),
+        )
+    except Exception:
+        logger.exception("extract_recommendation failed for user_id=%s", user_id)
+        record_extraction("recommendation", "error")
     finally:
         db.close()

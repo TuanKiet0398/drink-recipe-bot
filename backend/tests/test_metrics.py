@@ -56,6 +56,54 @@ def test_record_llm_usage_never_raises_on_bad_input():
     metrics.record_llm_usage("gpt-4o-mini", "generate", prompt_tokens="not-a-number", completion_tokens=None)
 
 
+def test_record_extraction_counts_detected_outcome():
+    labels = {"extractor": "favourite", "outcome": "detected"}
+    before = _sample("extraction_runs_total", labels)
+
+    metrics.record_extraction("favourite", "detected")
+
+    assert _sample("extraction_runs_total", labels) - before == 1
+
+
+def test_record_extraction_counts_noop_outcome():
+    labels = {"extractor": "customer_notes", "outcome": "noop"}
+    before = _sample("extraction_runs_total", labels)
+
+    metrics.record_extraction("customer_notes", "noop")
+
+    assert _sample("extraction_runs_total", labels) - before == 1
+
+
+def test_record_extraction_never_raises_on_bad_input():
+    metrics.record_extraction(None, None)
+
+
+def test_record_summarize_counts_ran_outcome():
+    labels = {"outcome": "ran"}
+    before = _sample("summarize_runs_total", labels)
+
+    metrics.record_summarize("ran")
+
+    assert _sample("summarize_runs_total", labels) - before == 1
+
+
+def test_record_summarize_never_raises_on_bad_input():
+    metrics.record_summarize(None)
+
+
+def test_record_daily_limit_hit_counts_by_channel():
+    labels = {"channel_id": "3"}
+    before = _sample("daily_token_limit_hits_total", labels)
+
+    metrics.record_daily_limit_hit(3)
+
+    assert _sample("daily_token_limit_hits_total", labels) - before == 1
+
+
+def test_record_daily_limit_hit_never_raises_on_bad_input():
+    metrics.record_daily_limit_hit(None)
+
+
 def test_model_prices_can_be_overridden_by_environment(monkeypatch):
     monkeypatch.setenv("MODEL_PRICES_JSON", '{"my-model": [1000.0, 2000.0]}')
     prices = metrics.load_model_prices()

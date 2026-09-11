@@ -56,6 +56,7 @@ class Message(Base):
 
 class Favourite(Base):
     __tablename__ = "favourites"
+    __table_args__ = (Index("ix_favourites_user_id_drink_name", "user_id", "drink_name", unique=True),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
@@ -63,6 +64,7 @@ class Favourite(Base):
     confidence: Mapped[str] = mapped_column(String, default="inferred")
     source: Mapped[str] = mapped_column(String, default="chat")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
     user: Mapped["User"] = relationship(back_populates="favourites")
 
@@ -90,6 +92,25 @@ class CustomerNote(Base):
     value: Mapped[str] = mapped_column(String)
     confidence: Mapped[str] = mapped_column(String, default="inferred")
     source: Mapped[str] = mapped_column(String, default="chat")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+class RecommendationHistory(Base):
+    __tablename__ = "recommendation_history"
+    __table_args__ = (
+        Index(
+            "ix_recommendation_history_user_id_product_name",
+            "user_id",
+            "product_name",
+            unique=True,
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    product_name: Mapped[str] = mapped_column(String)
+    reason: Mapped[str] = mapped_column(String, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 

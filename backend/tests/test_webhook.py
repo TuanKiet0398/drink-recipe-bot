@@ -290,6 +290,106 @@ async def test_process_message_background_customer_note_extraction_actually_runs
     assert row.value == "peanuts"
 
 
+@pytest.mark.asyncio
+async def test_process_message_background_recommendation_extraction_actually_runs(
+    db_session, channel_id
+):
+    from app.db.models import RecommendationHistory
+    from tests.conftest import TestSessionLocal
+
+    user = User(channel_id=channel_id, telegram_user_id="998")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=json.dumps(
+                    {"product_name": "hojicha", "reason": "ít caffeine, hợp buổi tối"}
+                )
+            )
+        )
+    ]
+
+    with (
+        patch("app.routers.webhook.run_agent") as mock_run_agent,
+        patch("app.routers.webhook.send_message", new_callable=AsyncMock),
+        patch("app.routers.webhook.edit_message_text", new_callable=AsyncMock),
+        patch("app.routers.webhook.send_chat_action", new_callable=AsyncMock),
+        patch("app.routers.webhook.get_chat_client", return_value=fake_openai),
+        patch("app.routers.webhook.get_embedding_client", return_value=fake_openai),
+        patch("app.db.base.SessionLocal", TestSessionLocal),
+    ):
+
+        def fake_run_agent(state, **kwargs):
+            # run_agent returns a *new* AgentState; mirror that so the test
+            # covers the copy-back the webhook has to do for the extractors.
+            return state.model_copy(
+                update={
+                    "reply": "Bạn nên thử hojicha, ít caffeine nên không lo mất ngủ.",
+                    "retrieved_chunks": ["Hojicha là trà xanh rang, ít caffeine (10-20mg)."],
+                }
+            )
+
+        mock_run_agent.side_effect = fake_run_agent
+
+        await process_telegram_message(
+            channel_id, "TEST_TOKEN", "998", "998", "tôi hay mất ngủ thì uống gì được", db_session
+        )
+
+        from app.routers.webhook import _background_tasks
+
+        for task in list(_background_tasks):
+            await task
+
+    row = db_session.query(RecommendationHistory).filter_by(user_id=user.id).one()
+    assert row.product_name == "hojicha"
+    assert row.reason == "ít caffeine, hợp buổi tối"
+
+
+@pytest.mark.asyncio
+async def test_process_message_background_favourite_extraction_records_error_metric_on_failure(
+    db_session, channel_id
+):
+    from tests.conftest import TestSessionLocal
+
+    user = User(channel_id=channel_id, telegram_user_id="997")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    with (
+        patch("app.routers.webhook.run_agent") as mock_run_agent,
+        patch("app.routers.webhook.send_message", new_callable=AsyncMock),
+        patch("app.routers.webhook.edit_message_text", new_callable=AsyncMock),
+        patch("app.routers.webhook.send_chat_action", new_callable=AsyncMock),
+        patch("app.routers.webhook.extract_favourite", side_effect=RuntimeError("boom")),
+        patch("app.routers.webhook.get_chat_client", return_value=MagicMock()),
+        patch("app.routers.webhook.get_embedding_client", return_value=MagicMock()),
+        patch("app.routers.webhook.record_extraction") as mock_record,
+        patch("app.db.base.SessionLocal", TestSessionLocal),
+    ):
+
+        def fake_run_agent(state, **kwargs):
+            state.reply = "Welcome!"
+            return state
+
+        mock_run_agent.side_effect = fake_run_agent
+
+        await process_telegram_message(
+            channel_id, "TEST_TOKEN", "997", "997", "hi", db_session
+        )
+
+        from app.routers.webhook import _background_tasks
+
+        for task in list(_background_tasks):
+            await task
+
+    mock_record.assert_called_once_with("favourite", "error")
+
+
 def test_get_or_create_user_sets_last_active_at_for_a_new_user(db_session, channel_id):
     from datetime import UTC, datetime
 
@@ -343,6 +443,7 @@ async def test_process_message_blocks_reply_when_daily_token_limit_reached(db_se
     with (
         patch("app.routers.webhook.run_agent") as mock_run_agent,
         patch("app.routers.webhook.send_message", new_callable=AsyncMock) as mock_send,
+        patch("app.routers.webhook.record_daily_limit_hit") as mock_record_limit,
     ):
         await process_telegram_message(
             channel_id, "TEST_TOKEN", "limit1", "limit1", "one more question", db_session
@@ -352,6 +453,7 @@ async def test_process_message_blocks_reply_when_daily_token_limit_reached(db_se
         mock_send.assert_called_once()
         sent_text = mock_send.call_args.kwargs.get("text") or mock_send.call_args.args[-1]
         assert "limit" in sent_text.lower() or "giới hạn" in sent_text
+        mock_record_limit.assert_called_once_with(channel_id)
 
     reply_row = (
         db_session.query(Message)

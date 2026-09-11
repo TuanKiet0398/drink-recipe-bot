@@ -8,6 +8,7 @@ from app.agent import nodes
 from app.agent.nodes import (
     extract_customer_notes,
     extract_favourite,
+    extract_recommendation,
     fetch_history,
     generate,
     maybe_summarize,
@@ -17,7 +18,14 @@ from app.agent.nodes import (
     summarize_conversation,
 )
 from app.agent.state import AgentState
-from app.db.models import ConversationSummary, CustomerNote, Favourite, Message, User
+from app.db.models import (
+    ConversationSummary,
+    CustomerNote,
+    Favourite,
+    Message,
+    RecommendationHistory,
+    User,
+)
 from app.retry import retry_once
 
 
@@ -81,6 +89,43 @@ def test_fetch_history_returns_last_n_messages_in_chronological_order(db_session
     assert len(result.history) == 10
     contents = [m["content"] for m in result.history]
     assert contents == [f"message-{i}" for i in range(5, 15)]
+
+
+def test_fetch_history_loads_recent_recommendation_history(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="220")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    base = datetime.now(UTC)
+    for i in range(7):
+        db_session.add(
+            RecommendationHistory(
+                user_id=user.id,
+                product_name=f"product-{i}",
+                reason=f"reason-{i}",
+                updated_at=base + timedelta(seconds=i),
+            )
+        )
+    db_session.commit()
+
+    state = AgentState(user_id=user.id, chat_id="220", incoming_text="lần trước tư vấn gì nhỉ")
+    result = fetch_history(state, db_session)
+
+    assert len(result.recommendation_history) == 5
+    assert result.recommendation_history[0] == "product-6 (reason-6)"
+
+
+def test_fetch_history_recommendation_history_empty_when_no_rows_exist(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="221")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    state = AgentState(user_id=user.id, chat_id="221", incoming_text="hi")
+    result = fetch_history(state, db_session)
+
+    assert result.recommendation_history == []
 
 
 def test_fetch_history_loads_existing_summary(db_session, channel_id):
@@ -404,6 +449,27 @@ def test_generate_system_prompt_forbids_answering_when_no_knowledge_matched():
     system_message = fake_openai.chat.completions.create.call_args.kwargs["messages"][0]["content"]
     assert "(no matching knowledge found)" in system_message
     assert "do not describe how to make the drink" in system_message.lower()
+    assert "critical failure" in system_message.lower()
+
+
+def test_generate_system_prompt_forbids_naming_a_specific_drink_when_no_knowledge_matched():
+    state = AgentState(
+        user_id=1,
+        chat_id="1",
+        incoming_text="tôi hay mất ngủ thì uống gì được",
+        retrieved_chunks=[],
+    )
+
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value = _fake_stream(
+        "Sorry, we don't have a specific recommendation for that."
+    )
+
+    generate(state, MagicMock(), chat_client=fake_openai, model="gpt-4o-mini")
+
+    system_message = fake_openai.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+    assert "even if you know a real drink" in system_message.lower()
+    assert "naming any specific drink not in the knowledge above" in system_message.lower()
 
 
 def test_extract_favourite_upserts_when_preference_detected(db_session, channel_id):
@@ -424,6 +490,65 @@ def test_extract_favourite_upserts_when_preference_detected(db_session, channel_
     rows = db_session.query(Favourite).filter_by(user_id=user.id).all()
     assert len(rows) == 1
     assert rows[0].drink_name == "sencha"
+
+
+def test_extract_favourite_records_detected_metric_when_preference_found(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="7b")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    state = AgentState(user_id=user.id, chat_id="7b", incoming_text="I really love sencha the most")
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content='{"drink_name": "sencha"}'))
+    ]
+
+    with patch("app.agent.nodes.record_extraction") as mock_record:
+        extract_favourite(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
+
+    mock_record.assert_called_once_with("favourite", "detected")
+
+
+def test_extract_favourite_records_noop_metric_when_no_preference(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="8b")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    state = AgentState(user_id=user.id, chat_id="8b", incoming_text="what time do you close?")
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content='{"drink_name": null}'))
+    ]
+
+    with patch("app.agent.nodes.record_extraction") as mock_record:
+        extract_favourite(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
+
+    mock_record.assert_called_once_with("favourite", "noop")
+
+
+def test_extract_favourite_updates_existing_row_instead_of_inserting_a_second_one(
+    db_session, channel_id
+):
+    user = User(channel_id=channel_id, telegram_user_id="9")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    db_session.add(Favourite(user_id=user.id, drink_name="sencha"))
+    db_session.commit()
+
+    state = AgentState(user_id=user.id, chat_id="9", incoming_text="sencha is still my favourite")
+
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content='{"drink_name": "sencha"}'))
+    ]
+
+    extract_favourite(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
+
+    rows = db_session.query(Favourite).filter_by(user_id=user.id, drink_name="sencha").all()
+    assert len(rows) == 1
 
 
 def test_generate_retries_openai_once_then_succeeds(db_session):
@@ -543,6 +668,37 @@ def test_build_system_prompt_omits_summary_section_when_absent():
     assert "What we know" not in prompt
 
 
+def test_build_system_prompt_includes_recommendation_history_when_present():
+    state = AgentState(
+        user_id=1,
+        chat_id="1",
+        incoming_text="hi",
+        recommendation_history=["hojicha (ít caffeine, hợp buổi tối)"],
+    )
+    prompt = nodes._build_system_prompt(state)
+    assert "hojicha (ít caffeine, hợp buổi tối)" in prompt
+
+
+def test_build_system_prompt_marks_recommendation_history_as_non_authoritative():
+    """The history is a record of what was said, not a licence to re-suggest
+    it — the knowledge block stays the only source of what the shop sells."""
+    state = AgentState(
+        user_id=1,
+        chat_id="1",
+        incoming_text="hi",
+        recommendation_history=["chamomile tea (dễ ngủ)"],
+    )
+    prompt = nodes._build_system_prompt(state).lower()
+    assert "past conversation record only" in prompt
+    assert "do not re-recommend" in prompt
+
+
+def test_build_system_prompt_omits_recommendation_history_section_when_absent():
+    state = AgentState(user_id=1, chat_id="1", incoming_text="hi")
+    prompt = nodes._build_system_prompt(state)
+    assert "previously recommended" not in prompt.lower()
+
+
 def test_summarize_conversation_calls_llm_with_old_summary_and_new_messages(db_session):
     messages = [
         Message(id=1, user_id=1, role="user", content="I'm allergic to dairy"),
@@ -588,10 +744,12 @@ def test_maybe_summarize_noop_below_threshold(db_session, channel_id):
     _add_messages(db_session, user.id, 25)  # 15 aged out (< 20 threshold), 10 in raw window
 
     fake_openai = MagicMock()
-    maybe_summarize(db_session, user.id, fake_openai, "gpt-4o-mini")
+    with patch("app.agent.nodes.record_summarize") as mock_record:
+        maybe_summarize(db_session, user.id, fake_openai, "gpt-4o-mini")
 
     fake_openai.chat.completions.create.assert_not_called()
     assert db_session.query(ConversationSummary).filter_by(user_id=user.id).count() == 0
+    mock_record.assert_called_once_with("skipped")
 
 
 def test_maybe_summarize_runs_at_threshold_and_moves_cursor(db_session, channel_id):
@@ -606,11 +764,13 @@ def test_maybe_summarize_runs_at_threshold_and_moves_cursor(db_session, channel_
         MagicMock(message=MagicMock(content="Summary of first 20 messages."))
     ]
 
-    maybe_summarize(db_session, user.id, fake_openai, "gpt-4o-mini")
+    with patch("app.agent.nodes.record_summarize") as mock_record:
+        maybe_summarize(db_session, user.id, fake_openai, "gpt-4o-mini")
 
     fake_openai.chat.completions.create.assert_called_once()
     row = db_session.query(ConversationSummary).filter_by(user_id=user.id).one()
     assert row.summary_text == "Summary of first 20 messages."
+    mock_record.assert_called_once_with("ran")
 
     aged_out_ids = [
         m.id
@@ -660,10 +820,11 @@ def test_maybe_summarize_leaves_cursor_unchanged_on_llm_failure(db_session, chan
     fake_openai = MagicMock()
     fake_openai.chat.completions.create.side_effect = RuntimeError("down")
 
-    with patch("app.retry.time.sleep"):
+    with patch("app.retry.time.sleep"), patch("app.agent.nodes.record_summarize") as mock_record:
         maybe_summarize(db_session, user.id, fake_openai, "gpt-4o-mini")
 
     assert db_session.query(ConversationSummary).filter_by(user_id=user.id).count() == 0
+    mock_record.assert_called_once_with("failed")
 
 
 def test_build_system_prompt_includes_customer_notes_in_fixed_order():
@@ -768,6 +929,276 @@ def test_extract_customer_notes_noop_when_nothing_detected(db_session, channel_i
     extract_customer_notes(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
 
     assert db_session.query(CustomerNote).filter_by(user_id=user.id).count() == 0
+
+
+def test_extract_customer_notes_records_detected_metric_when_a_field_found(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="cn10b")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    state = AgentState(
+        user_id=user.id, chat_id="cn10b", incoming_text="I'm allergic to dairy, please avoid it"
+    )
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=json.dumps({"allergy": "dairy", "budget": None, "sugar_ice_level": None})
+            )
+        )
+    ]
+
+    with patch("app.agent.nodes.record_extraction") as mock_record:
+        extract_customer_notes(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
+
+    mock_record.assert_called_once_with("customer_notes", "detected")
+
+
+def test_extract_customer_notes_records_noop_metric_when_nothing_found(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="cn12b")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    state = AgentState(user_id=user.id, chat_id="cn12b", incoming_text="what time do you close?")
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=json.dumps({"allergy": None, "budget": None, "sugar_ice_level": None})
+            )
+        )
+    ]
+
+    with patch("app.agent.nodes.record_extraction") as mock_record:
+        extract_customer_notes(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
+
+    mock_record.assert_called_once_with("customer_notes", "noop")
+
+
+def test_extract_recommendation_creates_row_when_product_recommended(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="rh1")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    state = AgentState(
+        user_id=user.id,
+        chat_id="rh1",
+        incoming_text="tôi hay mất ngủ thì uống gì được",
+        reply="Bạn nên thử hojicha, ít caffeine nên không lo mất ngủ.",
+        retrieved_chunks=["Hojicha là trà xanh rang, hàm lượng caffeine thấp (10-20mg)."],
+    )
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=json.dumps({"product_name": "hojicha", "reason": "ít caffeine, hợp người mất ngủ"})
+            )
+        )
+    ]
+
+    extract_recommendation(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
+
+    row = db_session.query(RecommendationHistory).filter_by(user_id=user.id).one()
+    assert row.product_name == "hojicha"
+    assert row.reason == "ít caffeine, hợp người mất ngủ"
+
+
+def test_extract_recommendation_records_detected_metric_when_product_found(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="rh1b")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    state = AgentState(
+        user_id=user.id,
+        chat_id="rh1b",
+        incoming_text="tôi hay mất ngủ thì uống gì được",
+        reply="Bạn nên thử hojicha.",
+        retrieved_chunks=["Hojicha là trà xanh rang, hàm lượng caffeine thấp."],
+    )
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content=json.dumps({"product_name": "hojicha", "reason": "ít caffeine"})))
+    ]
+
+    with patch("app.agent.nodes.record_extraction") as mock_record:
+        extract_recommendation(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
+
+    mock_record.assert_called_once_with("recommendation", "detected")
+
+
+def test_extract_recommendation_records_noop_metric_when_no_product_found(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="rh2b")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    state = AgentState(
+        user_id=user.id, chat_id="rh2b", incoming_text="mấy giờ mở cửa", reply="Shop mở 8h-22h nhé."
+    )
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content=json.dumps({"product_name": None, "reason": None})))
+    ]
+
+    with patch("app.agent.nodes.record_extraction") as mock_record:
+        extract_recommendation(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
+
+    mock_record.assert_called_once_with("recommendation", "noop")
+
+
+def test_extract_recommendation_noop_when_no_product_recommended(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="rh2")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    state = AgentState(
+        user_id=user.id, chat_id="rh2", incoming_text="mấy giờ mở cửa", reply="Shop mở 8h-22h nhé."
+    )
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content=json.dumps({"product_name": None, "reason": None})))
+    ]
+
+    extract_recommendation(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
+
+    assert db_session.query(RecommendationHistory).filter_by(user_id=user.id).count() == 0
+
+
+def test_extract_recommendation_noop_when_reply_is_empty(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="rh3")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    state = AgentState(user_id=user.id, chat_id="rh3", incoming_text="hi", reply="")
+    fake_openai = MagicMock()
+
+    extract_recommendation(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
+
+    fake_openai.chat.completions.create.assert_not_called()
+    assert db_session.query(RecommendationHistory).filter_by(user_id=user.id).count() == 0
+
+
+def test_extract_recommendation_skips_a_product_absent_from_the_retrieved_knowledge(
+    db_session, channel_id
+):
+    """Guards the memory loop: a product the bot hallucinated (not present in
+    the knowledge that was actually retrieved for this turn) must never be
+    written to recommendation_history, since that memory is injected back
+    into every later system prompt and would keep re-suggesting it."""
+    user = User(channel_id=channel_id, telegram_user_id="rh5")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    state = AgentState(
+        user_id=user.id,
+        chat_id="rh5",
+        incoming_text="tôi hay mất ngủ thì uống gì được",
+        reply="Bạn nên thử chamomile tea, giúp thư giãn dễ ngủ.",
+        retrieved_chunks=["Matcha là trà xanh Nhật Bản dạng bột, uống trọn lá."],
+    )
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(
+            message=MagicMock(content=json.dumps({"product_name": "chamomile tea", "reason": "dễ ngủ"}))
+        )
+    ]
+
+    with patch("app.agent.nodes.record_extraction") as mock_record:
+        extract_recommendation(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
+
+    assert db_session.query(RecommendationHistory).filter_by(user_id=user.id).count() == 0
+    mock_record.assert_called_once_with("recommendation", "ungrounded")
+
+
+def test_extract_recommendation_skips_when_no_knowledge_was_retrieved(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="rh6")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    state = AgentState(
+        user_id=user.id,
+        chat_id="rh6",
+        incoming_text="tôi hay mất ngủ thì uống gì được",
+        reply="Bạn nên thử chamomile tea.",
+        retrieved_chunks=[],
+    )
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(
+            message=MagicMock(content=json.dumps({"product_name": "chamomile tea", "reason": "dễ ngủ"}))
+        )
+    ]
+
+    extract_recommendation(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
+
+    assert db_session.query(RecommendationHistory).filter_by(user_id=user.id).count() == 0
+
+
+def test_extract_recommendation_matches_the_product_name_case_insensitively(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="rh7")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+
+    state = AgentState(
+        user_id=user.id,
+        chat_id="rh7",
+        incoming_text="matcha latte có gì hay",
+        reply="Matcha Latte của shop pha với matcha culinary.",
+        retrieved_chunks=["Công thức matcha latte: 2g bột matcha culinary, 180ml sữa."],
+    )
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(
+            message=MagicMock(content=json.dumps({"product_name": "Matcha Latte", "reason": "vị dịu"}))
+        )
+    ]
+
+    extract_recommendation(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
+
+    row = db_session.query(RecommendationHistory).filter_by(user_id=user.id).one()
+    assert row.product_name == "Matcha Latte"
+
+
+def test_extract_recommendation_updates_existing_row_instead_of_inserting_a_second_one(
+    db_session, channel_id
+):
+    user = User(channel_id=channel_id, telegram_user_id="rh4")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    db_session.add(RecommendationHistory(user_id=user.id, product_name="hojicha", reason="old reason"))
+    db_session.commit()
+
+    state = AgentState(
+        user_id=user.id,
+        chat_id="rh4",
+        incoming_text="hojicha còn không",
+        reply="Còn hojicha nha, phù hợp buổi tối vì ít caffeine.",
+        retrieved_chunks=["Hojicha là trà xanh rang, hàm lượng caffeine thấp."],
+    )
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=json.dumps({"product_name": "hojicha", "reason": "ít caffeine, hợp buổi tối"})
+            )
+        )
+    ]
+
+    extract_recommendation(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
+
+    rows = db_session.query(RecommendationHistory).filter_by(user_id=user.id, product_name="hojicha").all()
+    assert len(rows) == 1
+    assert rows[0].reason == "ít caffeine, hợp buổi tối"
 
 
 def test_extract_customer_notes_swallows_malformed_llm_output(db_session, channel_id):
