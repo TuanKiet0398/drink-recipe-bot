@@ -6,6 +6,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/admin": "http://127.0.0.1:8000",
+      "/auth": "http://127.0.0.1:8000",
     },
     // /mnt/d/... is a Windows drive mounted into WSL2 — inotify events
     // from edits made on the Windows/host side don't propagate reliably,

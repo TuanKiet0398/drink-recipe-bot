@@ -15,6 +15,12 @@ interface ChatReply {
   model: string;
 }
 
+interface HistoryItem {
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+}
+
 interface LLMSettings {
   provider: string;
   chat_model: string;
@@ -39,6 +45,7 @@ export function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -46,6 +53,13 @@ export function ChatPage() {
     apiFetch<LLMSettings>("/admin/llm-settings")
       .then(setSettings)
       .catch(() => setSettings(null));
+    apiFetch<HistoryItem[]>("/admin/chat/history")
+      .then((items) => {
+        const loaded = items.map(({ role, content }) => ({ role, content }));
+        // Prepend: a message sent before the history arrived must not be lost.
+        setMessages((current) => [...loaded, ...current]);
+      })
+      .catch(() => setError("Failed to load the conversation"));
   }, []);
 
   useEffect(() => {
@@ -57,7 +71,6 @@ export function ChatPage() {
     e.preventDefault();
     const text = draft.trim();
     if (!text || sending) return;
-    const history = messages.map(({ role, content }) => ({ role, content }));
     setMessages((current) => [...current, { role: "user", content: text }]);
     setDraft("");
     setSending(true);
@@ -66,7 +79,7 @@ export function ChatPage() {
       const data = await apiFetch<ChatReply>("/admin/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, history }),
+        body: JSON.stringify({ message: text }),
       });
       setMessages((current) => [...current, { role: "assistant", content: data.reply, model: data.model }]);
     } catch (err) {
@@ -76,9 +89,17 @@ export function ChatPage() {
     }
   }
 
-  function reset(): void {
-    setMessages([]);
-    setError(null);
+  async function reset(): Promise<void> {
+    setResetting(true);
+    try {
+      await apiFetch("/admin/chat/history", { method: "DELETE" });
+      setMessages([]);
+      setError(null);
+    } catch {
+      setError("Failed to reset the conversation");
+    } finally {
+      setResetting(false);
+    }
   }
 
   return (
@@ -86,11 +107,11 @@ export function ChatPage() {
       <div>
         <h1 className={s.pageTitle}>Chat</h1>
         <p className={s.pageDescription}>
-          Test the bot&apos;s replies yourself — this talks to the live LLM, not a real customer channel.
+          Chat with the bot. It remembers your preferences between conversations.
         </p>
       </div>
 
-      <div className="flex items-center justify-between rounded-[10px] border border-admin-border bg-white px-3.5 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-[10px] border border-admin-border bg-white px-3.5 py-2.5">
         <div className="flex items-center gap-2 text-[12.5px] text-admin-muted">
           {settings && (
             <>
@@ -102,9 +123,16 @@ export function ChatPage() {
             </>
           )}
         </div>
-        <button onClick={reset} disabled={sending} className={`${s.btnSecondary} px-3 py-1.5 text-[12.5px]`}>
-          Reset conversation
-        </button>
+        <div className="flex items-center gap-2.5">
+          <span className="text-xs text-admin-muted">Clears the chat history. Remembered preferences stay.</span>
+          <button
+            onClick={reset}
+            disabled={sending || resetting}
+            className={`${s.btnSecondary} px-3 py-1.5 text-[12.5px]`}
+          >
+            Reset conversation
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -115,7 +143,7 @@ export function ChatPage() {
 
       <div ref={panelRef} className={`${s.card} flex flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden p-[18px]`}>
         {messages.length === 0 && !sending && (
-          <p className="m-auto text-[13.5px] text-admin-muted">Send a message to test the bot&apos;s replies.</p>
+          <p className="m-auto text-[13.5px] text-admin-muted">Send a message to start chatting with the bot.</p>
         )}
         {messages.map((message, index) => {
           const isUser = message.role === "user";
@@ -133,7 +161,7 @@ export function ChatPage() {
                   {message.content}
                 </div>
                 <span className={`mt-0.5 text-[10.5px] text-admin-label ${isUser ? "text-right" : "text-left"}`}>
-                  {isUser ? "Admin (test)" : `Bot · ${message.model}`}
+                  {isUser ? username : message.model ? `Bot · ${message.model}` : "Bot"}
                 </span>
               </div>
               {isUser && (
@@ -162,7 +190,7 @@ export function ChatPage() {
           aria-label="Message"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Nhắn thử bot, ví dụ: cách pha matcha đá?"
+          placeholder="Nhắn bot, ví dụ: cách pha matcha đá?"
           className={`${s.input} flex-1`}
         />
         <button

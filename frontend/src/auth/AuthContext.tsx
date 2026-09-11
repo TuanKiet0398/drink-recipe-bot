@@ -1,10 +1,17 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { clearCredentials, getStoredCredentials, login as apiLogin, onUnauthorized } from "../api/client";
+import {
+  clearCredentials,
+  getStoredCredentials,
+  login as apiLogin,
+  onUnauthorized,
+  register as apiRegister,
+} from "../api/client";
 
 interface AuthContextValue {
   isAuthenticated: boolean;
   username: string | null;
   login: (username: string, password: string) => Promise<void>;
+  register: (username: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -22,13 +29,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUsername(name);
   }
 
+  async function register(name: string, password: string): Promise<void> {
+    await apiRegister(name, password);
+    await login(name, password);
+  }
+
   function logout(): void {
     clearCredentials();
     setUsername(null);
   }
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated: username !== null, username, login, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated: username !== null, username, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

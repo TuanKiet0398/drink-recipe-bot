@@ -82,6 +82,18 @@ export async function login(username: string, password: string): Promise<void> {
   storeCredentials(username, password);
 }
 
+/** Creates a web account. Does not sign in — call `login` afterwards. */
+export async function register(username: string, password: string): Promise<void> {
+  const response = await fetch(`${apiBase()}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!response.ok) {
+    throw new ApiError((await response.text()) || response.statusText, response.status);
+  }
+}
+
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${apiBase()}${path}`, {
     ...options,

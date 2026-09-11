@@ -1,25 +1,55 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { ApiError } from "../api/client";
 import { MatchaIllustration } from "../components/MatchaIllustration";
 import { useAuth } from "./AuthContext";
 
+const inputClass =
+  "rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground transition-colors focus-visible:border-primary";
+
+function registrationError(err: unknown): string {
+  if (err instanceof ApiError && err.status === 409) return "Username already taken";
+  if (err instanceof ApiError && err.status === 422) {
+    return "Username must be 3–32 characters (letters, numbers, _ . -) and password at least 8 characters";
+  }
+  return "Registration failed";
+}
+
 export function LoginPage() {
-  const { login } = useAuth();
+  const { login, register } = useAuth();
   const navigate = useNavigate();
+  const [mode, setMode] = useState<"login" | "register">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const registering = mode === "register";
+
+  function switchMode(next: "login" | "register"): void {
+    setMode(next);
+    setError(null);
+    setConfirm("");
+  }
 
   async function handleSubmit(event: FormEvent): Promise<void> {
     event.preventDefault();
     setError(null);
+    if (registering && password !== confirm) {
+      setError("Passwords do not match");
+      return;
+    }
     setSubmitting(true);
     try {
-      await login(username, password);
-      navigate("/panel/docs");
-    } catch {
-      setError("Invalid username or password");
+      if (registering) {
+        await register(username, password);
+        navigate("/panel/chat");
+      } else {
+        await login(username, password);
+        navigate("/panel/docs");
+      }
+    } catch (err) {
+      setError(registering ? registrationError(err) : "Invalid username or password");
     } finally {
       setSubmitting(false);
     }
@@ -86,16 +116,16 @@ export function LoginPage() {
               >
                 ← Back
               </Link>
-              <h1 className="text-2xl font-semibold text-foreground">Admin Login</h1>
-              <p className="text-sm text-muted-foreground">Sign in to manage the Matcha Bot</p>
+              <h1 className="text-2xl font-semibold text-foreground">
+                {registering ? "Create account" : "Admin Login"}
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                {registering ? "Register to chat with the Matcha Bot" : "Sign in to manage the Matcha Bot"}
+              </p>
             </div>
             <label className="flex flex-col gap-1 text-sm font-medium text-foreground">
               Username
-              <input
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground transition-colors focus-visible:border-primary"
-              />
+              <input value={username} onChange={(e) => setUsername(e.target.value)} className={inputClass} />
             </label>
             <label className="flex flex-col gap-1 text-sm font-medium text-foreground">
               Password
@@ -103,9 +133,20 @@ export function LoginPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground transition-colors focus-visible:border-primary"
+                className={inputClass}
               />
             </label>
+            {registering && (
+              <label className="flex flex-col gap-1 text-sm font-medium text-foreground">
+                Confirm password
+                <input
+                  type="password"
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                  className={inputClass}
+                />
+              </label>
+            )}
             {error && (
               <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
                 {error}
@@ -116,7 +157,20 @@ export function LoginPage() {
               disabled={submitting}
               className="rounded-md bg-primary px-3 py-2.5 text-sm font-semibold text-white transition-all hover:bg-primary-dark hover:shadow-md active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {submitting ? "Logging in…" : "Log in"}
+              {registering
+                ? submitting
+                  ? "Creating account…"
+                  : "Create account"
+                : submitting
+                  ? "Logging in…"
+                  : "Log in"}
+            </button>
+            <button
+              type="button"
+              onClick={() => switchMode(registering ? "login" : "register")}
+              className="text-sm font-medium text-primary transition-colors hover:text-primary-dark"
+            >
+              {registering ? "Have an account? Log in" : "No account? Create one"}
             </button>
           </form>
         </div>
