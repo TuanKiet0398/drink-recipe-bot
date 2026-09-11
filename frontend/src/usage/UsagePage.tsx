@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api/client";
-import { UsageByModelChart } from "./UsageByModelChart";
+import * as s from "../layout/styles";
 
 interface UsageEntry {
   id: number;
@@ -30,6 +30,53 @@ interface UsageSummary {
 const PAGE_SIZE = 20;
 
 const EMPTY_SUMMARY: UsageSummary = { total_calls: 0, total_tokens: 0, estimated_cost_usd: 0, by_model: [] };
+
+// Validated categorical palette (dataviz skill reference), fixed order —
+// never cycled or reassigned when the model list changes.
+const MODEL_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"];
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+function TokensByModel({ byModel }: { byModel: ModelBreakdown[] }) {
+  const total = byModel.reduce((sum, m) => sum + m.total_tokens, 0);
+  const sorted = [...byModel].sort((a, b) => b.total_tokens - a.total_tokens);
+
+  return (
+    <div className={`${s.card} p-[18px]`}>
+      <h2 className={`${s.sectionLabel} mb-3`}>Tokens by Model</h2>
+      {sorted.length === 0 ? (
+        <p className="text-[13.5px] text-admin-muted">No usage recorded yet.</p>
+      ) : (
+        <ul className="flex flex-col gap-2.5">
+          {sorted.map((m, i) => {
+            const pct = total > 0 ? Math.round((m.total_tokens / total) * 100) : 0;
+            const color = MODEL_COLORS[i % MODEL_COLORS.length];
+            return (
+              <li
+                key={m.model}
+                className="flex items-center gap-2.5"
+                title={`${m.calls} calls · $${m.estimated_cost_usd.toFixed(4)}`}
+              >
+                <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+                <span className="w-[180px] shrink-0 truncate text-[13.5px] font-semibold text-admin-fg">{m.model}</span>
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#F1EFE7]">
+                  <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
+                </div>
+                <span className="w-[120px] shrink-0 text-right text-[12.5px] tabular-nums text-admin-muted">
+                  {formatTokens(m.total_tokens)} · {pct}%
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 export function UsagePage() {
   const [summary, setSummary] = useState<UsageSummary>(EMPTY_SUMMARY);
@@ -89,45 +136,42 @@ export function UsagePage() {
     }
   }
 
+  const stats = [
+    { label: "Total Calls", value: summary.total_calls },
+    { label: "Total Tokens", value: summary.total_tokens },
+    { label: "Est. Cost", value: `$${summary.estimated_cost_usd}` },
+  ];
+
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-foreground">Usage</h1>
-          <p className="text-sm text-muted-foreground">OpenAI token usage and estimated cost.</p>
+          <h1 className={s.pageTitle}>Usage</h1>
+          <p className={s.pageDescription}>OpenAI token usage and estimated cost.</p>
         </div>
-        <button
-          onClick={clearAll}
-          className="rounded-md border border-red-200 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
-        >
+        <button onClick={clearAll} className={s.btnDanger}>
           Clear all
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="rounded-xl border border-border bg-card p-5 shadow-card">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total Calls</h2>
-          <p className="mt-1 text-2xl font-semibold text-foreground">{summary.total_calls}</p>
-        </div>
-        <div className="rounded-xl border border-border bg-card p-5 shadow-card">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total Tokens</h2>
-          <p className="mt-1 text-2xl font-semibold text-foreground">{summary.total_tokens}</p>
-        </div>
-        <div className="rounded-xl border border-border bg-card p-5 shadow-card">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Est. Cost</h2>
-          <p className="mt-1 text-2xl font-semibold text-foreground">${summary.estimated_cost_usd}</p>
-        </div>
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-3.5">
+        {stats.map((stat) => (
+          <div key={stat.label} className={`${s.card} px-[18px] py-4`}>
+            <h2 className={s.sectionLabel}>{stat.label}</h2>
+            <p className="mt-1.5 text-2xl font-bold text-admin-fg">{stat.value}</p>
+          </div>
+        ))}
       </div>
 
-      <UsageByModelChart byModel={summary.by_model} />
+      <TokensByModel byModel={summary.by_model} />
 
       {error && (
-        <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className={s.alertError}>
           {error}
         </p>
       )}
 
-      <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-card">
+      <div className={`${s.card} overflow-x-auto`}>
         <table className="w-full">
           <thead>
             <tr>
@@ -144,35 +188,30 @@ export function UsagePage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={8} className={s.emptyCell}>
                   Loading usage…
                 </td>
               </tr>
             ) : entries.length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={8} className={s.emptyCell}>
                   No usage recorded yet.
                 </td>
               </tr>
             ) : (
               entries.map((entry) => (
                 <tr key={entry.id}>
-                  <td className="text-muted-foreground">{entry.user_id ?? "—"}</td>
+                  <td className="text-admin-muted">{entry.user_id ?? "—"}</td>
                   <td>
-                    <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                      {entry.call_type}
-                    </span>
+                    <span className={s.badgeNeutral}>{entry.call_type}</span>
                   </td>
-                  <td className="font-medium text-foreground">{entry.model}</td>
+                  <td className="font-semibold">{entry.model}</td>
                   <td>{entry.prompt_tokens}</td>
                   <td>{entry.completion_tokens ?? "—"}</td>
                   <td>{entry.total_tokens}</td>
-                  <td className="text-muted-foreground">{entry.created_at}</td>
+                  <td className="text-admin-muted">{entry.created_at}</td>
                   <td>
-                    <button
-                      onClick={() => deleteEntry(entry.id)}
-                      className="rounded px-2 py-1 text-sm font-medium text-red-700 hover:bg-red-50"
-                    >
+                    <button onClick={() => deleteEntry(entry.id)} className={s.btnGhostDanger}>
                       Delete
                     </button>
                   </td>
@@ -187,14 +226,14 @@ export function UsagePage() {
         <button
           disabled={offset === 0}
           onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
-          className="rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          className={s.btnSecondary}
         >
           Previous
         </button>
         <button
           disabled={!error && entries.length < PAGE_SIZE}
           onClick={() => setOffset(offset + PAGE_SIZE)}
-          className="rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          className={s.btnSecondary}
         >
           Next
         </button>
