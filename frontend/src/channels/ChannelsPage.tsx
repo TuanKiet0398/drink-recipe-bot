@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { apiFetch, ApiError, readableError } from "../api/client";
+import { apiFetch, readableError } from "../api/client";
 import * as s from "../layout/styles";
 
 interface Channel {
@@ -40,7 +40,7 @@ export function ChannelsPage() {
   const [formTesting, setFormTesting] = useState(false);
   const [rowTest, setRowTest] = useState<Record<number, TestResult>>({});
   const [rowTesting, setRowTesting] = useState<Record<number, boolean>>({});
-  const [forceDeleteTarget, setForceDeleteTarget] = useState<{ channel: Channel; message: string } | null>(null);
+  const [forceDeleteTarget, setForceDeleteTarget] = useState<Channel | null>(null);
   const [forceDeleteInput, setForceDeleteInput] = useState("");
   const [forceDeleting, setForceDeleting] = useState(false);
 
@@ -88,26 +88,28 @@ export function ChannelsPage() {
   }
 
   async function deleteChannel(channel: Channel): Promise<void> {
+    if (!window.confirm(`Remove "${channel.key}"? Its users and their chat history are kept — re-adding the same bot token brings the channel back.`)) {
+      return;
+    }
     try {
       await apiFetch(`/admin/channels/${channel.id}`, { method: "DELETE" });
       setError(null);
       await loadChannels();
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
-        setError(null);
-        setForceDeleteInput("");
-        setForceDeleteTarget({ channel, message: readableError(err, "This channel still has users attached.") });
-        return;
-      }
       setError(readableError(err, "Failed to delete channel"));
     }
+  }
+
+  function openForceDelete(channel: Channel): void {
+    setForceDeleteInput("");
+    setForceDeleteTarget(channel);
   }
 
   async function confirmForceDelete(): Promise<void> {
     if (!forceDeleteTarget) return;
     setForceDeleting(true);
     try {
-      await apiFetch(`/admin/channels/${forceDeleteTarget.channel.id}?force=true`, { method: "DELETE" });
+      await apiFetch(`/admin/channels/${forceDeleteTarget.id}?force=true`, { method: "DELETE" });
       setError(null);
       setForceDeleteTarget(null);
       await loadChannels();
@@ -330,6 +332,9 @@ export function ChannelsPage() {
                       <button onClick={() => deleteChannel(channel)} className={s.btnGhostDanger}>
                         Delete
                       </button>
+                      <button onClick={() => openForceDelete(channel)} className={s.btnGhostDanger}>
+                        Delete permanently
+                      </button>
                     </div>
                     {rowTest[channel.id] && <TestResultLine result={rowTest[channel.id]} />}
                   </td>
@@ -343,17 +348,17 @@ export function ChannelsPage() {
       {forceDeleteTarget && (
         <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
           <div className={`${s.card} w-full max-w-md p-5`}>
-            <h2 className="text-sm font-bold text-admin-danger">Delete "{forceDeleteTarget.channel.key}"?</h2>
-            <p className="mt-2 text-[13.5px] text-admin-muted">{forceDeleteTarget.message}</p>
+            <h2 className="text-sm font-bold text-admin-danger">Delete "{forceDeleteTarget.key}" permanently?</h2>
             <p className="mt-2 text-[13.5px] text-admin-muted">
-              This permanently erases those users' chat history. Type the channel's key,{" "}
-              <span className="font-semibold text-admin-fg">{forceDeleteTarget.channel.key}</span>, to confirm.
+              This permanently erases the channel and every one of its users' chat history, favourites and
+              notes — it cannot be undone by re-adding the bot. Type the channel's key,{" "}
+              <span className="font-semibold text-admin-fg">{forceDeleteTarget.key}</span>, to confirm.
             </p>
             <input
               autoFocus
               value={forceDeleteInput}
               onChange={(e) => setForceDeleteInput(e.target.value)}
-              placeholder={forceDeleteTarget.channel.key}
+              placeholder={forceDeleteTarget.key}
               className={`${s.input} mt-3 w-full`}
             />
             <div className="mt-4 flex justify-end gap-2">
@@ -362,7 +367,7 @@ export function ChannelsPage() {
               </button>
               <button
                 type="button"
-                disabled={forceDeleteInput !== forceDeleteTarget.channel.key || forceDeleting}
+                disabled={forceDeleteInput !== forceDeleteTarget.key || forceDeleting}
                 onClick={confirmForceDelete}
                 className="rounded-lg bg-admin-danger px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
               >

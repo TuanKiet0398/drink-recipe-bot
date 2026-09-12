@@ -1,0 +1,318 @@
+<!doctype html>
+<!-- Full repo architecture, camera-acts mode. New file, not a template edit. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Matcha Bot — full system architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#f8fafc; --surface:#f8fafc;
+  --grid:color-mix(in srgb, #475569 10%, transparent);
+  --ink:#1e293b; --muted:#475569; --stroke:#475569; --stroke-w:1.5px; --radius:8px;
+  --font-title:"Inter",ui-sans-serif,system-ui,sans-serif;
+  --font-label:"Inter",ui-sans-serif,system-ui,sans-serif;
+  --fs-title:1.375rem; --fs-label:16px; --fs-sub:13px;
+  --role-client:#dbeafe;  --ink-client:#2563eb;  --accent-client:#3b82f6;  --on-client:#1e40af;
+  --role-service:#ffedd5; --ink-service:#ea580c; --accent-service:#f97316; --on-service:#9a3412;
+  --role-data:#dcfce7;    --ink-data:#16a34a;    --accent-data:#22c55e;    --on-data:#166534;
+  --role-async:#f3e8ff;   --ink-async:#9333ea;   --accent-async:#a855f7;   --on-async:#6b21a8;
+  --role-external:#f3f4f6;--ink-external:#4b5563;--accent-external:#6b7280;--on-external:#1f2937;
+  --dur-flow:1200ms; --dur-pulse:1600ms; --dur-fill:2000ms; --dur-cam:24500ms;
+  --ease-flow:ease-in-out; --ease-cam:cubic-bezier(.83,0,.17,1);
+  --dash:8; --dash-gap:6; --dash-cycle:56; --empty:.22; --glow:8px;
+}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-label)}
+.diagram{max-width:1240px;margin:0 auto;padding:24px 16px 40px}
+.diagram__title{font:600 var(--fs-title)/1.2 var(--font-title);margin:0 0 4px;letter-spacing:-.01em}
+.diagram__subtitle{margin:0 0 18px;color:var(--muted);font-size:.875rem}
+.diagram__canvas{display:block;width:100%;height:auto;background:var(--surface);
+  background-image:radial-gradient(var(--grid) 1px,transparent 1px);background-size:20px 20px;border-radius:var(--radius);overflow:hidden}
+[data-role="client"]  {--fill:var(--role-client);  --line:var(--ink-client);  --accent:var(--accent-client);  --on:var(--on-client)}
+[data-role="service"] {--fill:var(--role-service); --line:var(--ink-service); --accent:var(--accent-service); --on:var(--on-service)}
+[data-role="data"]    {--fill:var(--role-data);    --line:var(--ink-data);    --accent:var(--accent-data);    --on:var(--on-data)}
+[data-role="async"]   {--fill:var(--role-async);   --line:var(--ink-async);   --accent:var(--accent-async);   --on:var(--on-async)}
+[data-role="external"]{--fill:var(--role-external);--line:var(--ink-external);--accent:var(--accent-external);--on:var(--on-external)}
+.node__shape{fill:var(--fill);stroke:var(--line);stroke-width:var(--stroke-w)}
+.node--primary .node__shape{stroke-width:calc(var(--stroke-w) * 1.4)}
+.node__detail{fill:none;stroke:var(--line);stroke-width:1;opacity:.65}
+.node__icon{fill:var(--line)}
+.node__label{fill:var(--on);font:600 var(--fs-label) var(--font-label);text-anchor:middle}
+.node__sub{fill:var(--on);font:400 var(--fs-sub) var(--font-label);text-anchor:middle;opacity:.85;font-variant-ligatures:none}
+.edge{fill:none;stroke:var(--stroke);stroke-width:var(--stroke-w);stroke-linecap:round;stroke-linejoin:miter;marker-end:url(#arrow)}
+.edge--primary{stroke-width:calc(var(--stroke-w) * 1.35)}
+.edge--async{stroke:var(--ink-external);stroke-dasharray:10 7;marker-end:url(#arrow-open)}
+.edge__label{fill:var(--muted);font:500 var(--fs-sub) var(--font-label);text-anchor:middle}
+.marker{fill:var(--stroke);stroke:none}
+.marker--open{fill:none;stroke:var(--ink-external);stroke-width:1.6}
+.anim-dash-flow{stroke-dasharray:var(--dash) var(--dash-gap);animation:dash-flow var(--dur-flow) linear infinite}
+@keyframes dash-flow{to{stroke-dashoffset:-42}}
+.packet{offset-distance:0%;offset-rotate:0deg}
+.anim-packet-travel{animation:pkt var(--dur-flow) var(--ease-flow) infinite}
+@keyframes pkt{0%{offset-distance:0%;opacity:0}8%{opacity:1}70%{offset-distance:100%;opacity:1}80%,100%{offset-distance:100%;opacity:0}}
+.anim-pulse-glow{animation:pulse-glow var(--dur-pulse) ease-in-out infinite}
+@keyframes pulse-glow{0%,100%{opacity:1}50%{opacity:.72}}
+.legend{list-style:none;display:flex;flex-wrap:wrap;gap:10px 22px;margin:18px 0 0;padding:0}
+.legend__item{display:flex;align-items:center;gap:8px;font-size:.8125rem;color:var(--muted)}
+.legend__swatch{inline-size:16px;block-size:16px;border-radius:4px;background:var(--fill);border:2px solid var(--line)}
+.act-zone rect{fill:none;stroke:var(--muted);stroke-width:1;stroke-dasharray:4 4;opacity:.5}
+.act-label{fill:var(--muted);font:600 .75rem var(--font-label);letter-spacing:.04em;text-transform:uppercase}
+.camera{transform-origin:0 0;will-change:transform;animation:cam-tour var(--dur-cam) var(--ease-cam) infinite}
+@keyframes cam-tour{
+  0%,     8.163%  {transform:none}
+  10.408%,20.612% {transform:translate(413.5px,-142.5px) scale(1.475)}
+  22.857%,31.020% {transform:none}
+  33.061%,46.122% {transform:translate(59.5px,-142.5px) scale(1.475)}
+  48.163%,56.327% {transform:none}
+  58.571%,71.633% {transform:translate(-412.5px,-142.5px) scale(1.475)}
+  73.878%,82.041% {transform:none}
+  84.490%,97.551% {transform:translate(-884.5px,-142.5px) scale(1.475)}
+  100%            {transform:none}
+}
+@keyframes act-focus-1-rect{
+  0%,8.163%      {stroke:var(--muted); stroke-width:1; stroke-dasharray:4 4; opacity:.5}
+  10.408%,20.612%{stroke:var(--ink);   stroke-width:2; stroke-dasharray:0 0; opacity:1}
+  22.857%,100%   {stroke:var(--muted); stroke-width:1; stroke-dasharray:4 4; opacity:.5}
+}
+@keyframes act-focus-1-label{
+  0%,8.163%      {fill:var(--muted)}
+  10.408%,20.612%{fill:var(--ink)}
+  22.857%,100%   {fill:var(--muted)}
+}
+@keyframes act-focus-2-rect{
+  0%,31.020%     {stroke:var(--muted); stroke-width:1; stroke-dasharray:4 4; opacity:.5}
+  33.061%,46.122%{stroke:var(--ink);   stroke-width:2; stroke-dasharray:0 0; opacity:1}
+  48.163%,100%   {stroke:var(--muted); stroke-width:1; stroke-dasharray:4 4; opacity:.5}
+}
+@keyframes act-focus-2-label{
+  0%,31.020%     {fill:var(--muted)}
+  33.061%,46.122%{fill:var(--ink)}
+  48.163%,100%   {fill:var(--muted)}
+}
+@keyframes act-focus-3-rect{
+  0%,56.327%     {stroke:var(--muted); stroke-width:1; stroke-dasharray:4 4; opacity:.5}
+  58.571%,71.633%{stroke:var(--ink);   stroke-width:2; stroke-dasharray:0 0; opacity:1}
+  73.878%,100%   {stroke:var(--muted); stroke-width:1; stroke-dasharray:4 4; opacity:.5}
+}
+@keyframes act-focus-3-label{
+  0%,56.327%     {fill:var(--muted)}
+  58.571%,71.633%{fill:var(--ink)}
+  73.878%,100%   {fill:var(--muted)}
+}
+@keyframes act-focus-4-rect{
+  0%,82.041%     {stroke:var(--muted); stroke-width:1; stroke-dasharray:4 4; opacity:.5}
+  84.490%,97.551%{stroke:var(--ink);   stroke-width:2; stroke-dasharray:0 0; opacity:1}
+  100%           {stroke:var(--muted); stroke-width:1; stroke-dasharray:4 4; opacity:.5}
+}
+@keyframes act-focus-4-label{
+  0%,82.041%     {fill:var(--muted)}
+  84.490%,97.551%{fill:var(--ink)}
+  100%           {fill:var(--muted)}
+}
+.act-zone[data-act="1"] rect{animation:act-focus-1-rect var(--dur-cam) var(--ease-cam) infinite}
+.act-zone[data-act="1"] .act-label{animation:act-focus-1-label var(--dur-cam) var(--ease-cam) infinite}
+.act-zone[data-act="2"] rect{animation:act-focus-2-rect var(--dur-cam) var(--ease-cam) infinite}
+.act-zone[data-act="2"] .act-label{animation:act-focus-2-label var(--dur-cam) var(--ease-cam) infinite}
+.act-zone[data-act="3"] rect{animation:act-focus-3-rect var(--dur-cam) var(--ease-cam) infinite}
+.act-zone[data-act="3"] .act-label{animation:act-focus-3-label var(--dur-cam) var(--ease-cam) infinite}
+.act-zone[data-act="4"] rect{animation:act-focus-4-rect var(--dur-cam) var(--ease-cam) infinite}
+.act-zone[data-act="4"] .act-label{animation:act-focus-4-label var(--dur-cam) var(--ease-cam) infinite}
+@media (prefers-reduced-motion: reduce){
+  .anim-dash-flow{animation:none !important;stroke-dasharray:none !important}
+  .edge--async{stroke-dasharray:10 7 !important}
+  .anim-packet-travel{animation:none !important;offset-distance:100% !important;opacity:1 !important}
+  .anim-pulse-glow{animation:none !important;opacity:1 !important}
+  .camera{animation:none !important;transform:none !important}
+  .act-zone rect{animation:none !important}
+  .act-label{animation:none !important}
+}
+</style>
+</head>
+<body>
+<main class="diagram">
+  <h1 class="diagram__title">Matcha Bot — full system architecture</h1>
+  <p class="diagram__subtitle">flat-minimal · camera-acts · ACT 1 clients → ACT 2 gateway &amp; backend → ACT 3 data &amp; AI → ACT 4 observability</p>
+  <svg class="diagram__canvas" viewBox="0 0 1240 600" role="img" aria-labelledby="t d">
+    <title id="t">Matcha Bot — full system architecture</title>
+    <desc id="d">ACT 1: an admin browser and a Telegram user are the two clients. ACT 2: the admin browser hits the
+      Nginx frontend, which proxies to the FastAPI backend; the backend also long-polls the Telegram Bot API for
+      customer messages. ACT 3: the backend reads/writes SQLite for app data, queries the embedded Chroma vector
+      store for retrieval, and calls the OpenAI API for chat and embeddings. ACT 4: Prometheus scrapes the backend
+      and the host/container metrics exporters on a 15s cadence, and Grafana queries Prometheus for dashboards.
+      The camera opens on the whole system, tours each act in this flow order, and returns to overview between acts.</desc>
+    <defs>
+      <marker id="arrow" class="marker" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse" markerUnits="strokeWidth"><path d="M 0 0 L 10 5 L 0 10 z"/></marker>
+      <marker id="arrow-open" class="marker marker--open" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse" markerUnits="strokeWidth"><path d="M 0 0 L 10 5 L 0 10" fill="none"/></marker>
+    </defs>
+    <g class="layer-acts">
+      <g class="act-zone" data-act="1">
+        <rect x="20" y="60" width="240" height="480" rx="12"/>
+        <text class="act-label" x="32" y="46">ACT 1 · Clients</text>
+      </g>
+      <g class="act-zone" data-act="2">
+        <rect x="260" y="60" width="240" height="480" rx="12"/>
+        <text class="act-label" x="272" y="46">ACT 2 · Gateway &amp; Backend</text>
+      </g>
+      <g class="act-zone" data-act="3">
+        <rect x="580" y="60" width="240" height="480" rx="12"/>
+        <text class="act-label" x="592" y="46">ACT 3 · Data &amp; AI</text>
+      </g>
+      <g class="act-zone" data-act="4">
+        <rect x="900" y="60" width="240" height="480" rx="12"/>
+        <text class="act-label" x="912" y="46">ACT 4 · Observability</text>
+      </g>
+    </g>
+    <g class="camera">
+      <g class="layer-edges">
+        <path class="edge edge--primary anim-dash-flow" d="M 220 140 H 300"><title>Admin Browser calls Frontend</title></path>
+        <text class="edge__label" x="260" y="128">HTTPS</text>
+
+        <path class="edge anim-dash-flow" d="M 220 460 V 380 H 383 V 438"><title>Telegram User sends message</title></path>
+        <text class="edge__label" x="300" y="372">send msg</text>
+
+        <path class="edge edge--primary anim-dash-flow" d="M 380 180 V 260"><title>Frontend proxies to FastAPI Backend</title></path>
+        <text class="edge__label" x="440" y="222">proxy /admin,/auth</text>
+
+        <path class="edge anim-dash-flow" d="M 380 340 H 383 V 438"><title>FastAPI Backend long-polls Telegram Bot API</title></path>
+        <text class="edge__label" x="450" y="370">long-poll getUpdates</text>
+
+        <path class="edge anim-dash-flow" d="M 460 300 H 540 V 140 H 620"><title>FastAPI Backend reads/writes SQLite</title></path>
+        <text class="edge__label" x="545" y="128">read / write</text>
+
+        <path class="edge anim-dash-flow" d="M 460 300 H 620"><title>FastAPI Backend queries Chroma Store</title></path>
+        <text class="edge__label" x="540" y="288">vector query</text>
+
+        <path class="edge edge--primary anim-dash-flow" d="M 460 300 V 380 H 703 V 438"><title>FastAPI Backend calls OpenAI API</title></path>
+        <text class="edge__label" x="580" y="372">chat + embeddings</text>
+
+        <path class="edge edge--async" d="M 940 300 V 410 H 380 V 340"><title>Prometheus scrapes FastAPI Backend</title></path>
+        <text class="edge__label" x="790" y="424">scrape · 15s</text>
+
+        <path class="edge edge--async" d="M 1020 340 V 420"><title>Prometheus scrapes Host Metrics exporters</title></path>
+        <text class="edge__label" x="1075" y="384">scrape · 15s</text>
+
+        <path class="edge anim-dash-flow" d="M 1020 180 V 260"><title>Grafana queries Prometheus</title></path>
+        <text class="edge__label" x="1075" y="224">PromQL query</text>
+
+        <g class="packet anim-packet-travel" style="offset-path:path('M 220 140 H 300')" aria-hidden="true"><circle r="5" fill="var(--stroke)"/></g>
+        <g class="packet anim-packet-travel" style="offset-path:path('M 220 460 V 380 H 383 V 438');animation-delay:-300ms" aria-hidden="true"><circle r="5" fill="var(--stroke)"/></g>
+        <g class="packet anim-packet-travel" style="offset-path:path('M 380 180 V 260');animation-delay:-500ms" aria-hidden="true"><circle r="5" fill="var(--stroke)"/></g>
+        <g class="packet anim-packet-travel" style="offset-path:path('M 380 340 H 383 V 438');animation-delay:-700ms" aria-hidden="true"><circle r="5" fill="var(--stroke)"/></g>
+        <g class="packet anim-packet-travel" style="offset-path:path('M 460 300 H 540 V 140 H 620');animation-delay:-900ms" aria-hidden="true"><circle r="5" fill="var(--stroke)"/></g>
+        <g class="packet anim-packet-travel" style="offset-path:path('M 460 300 H 620');animation-delay:-1100ms" aria-hidden="true"><circle r="5" fill="var(--stroke)"/></g>
+        <g class="packet anim-packet-travel" style="offset-path:path('M 460 300 V 380 H 703 V 438');animation-delay:-1300ms" aria-hidden="true"><circle r="5" fill="var(--stroke)"/></g>
+        <g class="packet anim-packet-travel" style="offset-path:path('M 1020 180 V 260');animation-delay:-1500ms" aria-hidden="true"><circle r="5" fill="var(--stroke)"/></g>
+      </g>
+      <g class="layer-nodes">
+        <g class="node" data-role="client" data-act="1" transform="translate(60,100)">
+          <title>Admin Browser</title>
+          <g class="node__body">
+            <rect class="node__shape" x="0" y="0" width="160" height="80" rx="8"/>
+            <path class="node__detail" d="M 0 20 H 160"/>
+            <circle class="node__icon" cx="14" cy="10" r="3"/><circle class="node__icon" cx="26" cy="10" r="3"/><circle class="node__icon" cx="38" cy="10" r="3"/>
+          </g>
+          <text class="node__label" x="80" y="48">Admin Browser</text>
+          <text class="node__sub" x="80" y="66">React SPA</text>
+        </g>
+
+        <g class="node" data-role="client" data-act="1" transform="translate(60,420)">
+          <title>Telegram User</title>
+          <g class="node__body">
+            <rect class="node__shape" x="0" y="0" width="160" height="80" rx="8"/>
+            <path class="node__detail" d="M 0 20 H 160"/>
+            <circle class="node__icon" cx="14" cy="10" r="3"/><circle class="node__icon" cx="26" cy="10" r="3"/><circle class="node__icon" cx="38" cy="10" r="3"/>
+          </g>
+          <text class="node__label" x="80" y="48">Telegram User</text>
+          <text class="node__sub" x="80" y="66">customer</text>
+        </g>
+
+        <g class="node" data-role="service" data-act="2" transform="translate(300,100)">
+          <title>Frontend · Nginx</title>
+          <g class="node__body">
+            <polygon class="node__shape" points="20,0 140,0 160,40 140,80 20,80 0,40"/>
+            <path class="node__detail" d="M 80 7 V 14 M 66 25 L 80 14 L 94 25 M 80 14 V 25"/>
+          </g>
+          <text class="node__label" x="80" y="46">Frontend · Nginx</text>
+          <text class="node__sub" x="80" y="64">static + proxy</text>
+        </g>
+
+        <g class="node node--primary" data-role="service" data-act="2" transform="translate(300,260)">
+          <title>FastAPI Backend</title>
+          <g class="node__body anim-pulse-glow"><rect class="node__shape" x="0" y="0" width="160" height="80" rx="8"/></g>
+          <text class="node__label" x="80" y="36">FastAPI Backend</text>
+          <text class="node__sub" x="80" y="56">API + agent + poller</text>
+        </g>
+
+        <g class="node" data-role="external" data-act="2" transform="translate(300,420)">
+          <title>Telegram Bot API</title>
+          <g class="node__body">
+            <path class="node__shape" d="M 40 66 A 22 22 0 0 1 42 24 A 28 28 0 0 1 94 18 A 24 24 0 0 1 130 34 A 18 18 0 0 1 126 66 Z"/>
+          </g>
+          <text class="node__label" x="83" y="46">Telegram Bot API</text>
+          <text class="node__sub" x="83" y="62">external</text>
+        </g>
+
+        <g class="node" data-role="data" data-act="3" transform="translate(620,100)">
+          <title>SQLite</title>
+          <g class="node__body">
+            <path class="node__shape" d="M 0 14 A 80 14 0 0 1 160 14 V 66 A 80 14 0 0 1 0 66 Z"/>
+            <path class="node__detail" d="M 0 14 A 80 14 0 0 0 160 14"/>
+          </g>
+          <text class="node__label" x="80" y="46">SQLite</text>
+          <text class="node__sub" x="80" y="64">app data</text>
+        </g>
+
+        <g class="node" data-role="data" data-act="3" transform="translate(620,260)">
+          <title>Chroma Store</title>
+          <g class="node__body">
+            <path class="node__shape" d="M 0 14 A 80 14 0 0 1 160 14 V 66 A 80 14 0 0 1 0 66 Z"/>
+            <path class="node__detail" d="M 0 14 A 80 14 0 0 0 160 14"/>
+          </g>
+          <text class="node__label" x="80" y="46">Chroma Store</text>
+          <text class="node__sub" x="80" y="64">vector index</text>
+        </g>
+
+        <g class="node node--primary" data-role="external" data-act="3" transform="translate(620,420)">
+          <title>OpenAI API</title>
+          <g class="node__body anim-pulse-glow">
+            <path class="node__shape" d="M 40 66 A 22 22 0 0 1 42 24 A 28 28 0 0 1 94 18 A 24 24 0 0 1 130 34 A 18 18 0 0 1 126 66 Z"/>
+          </g>
+          <text class="node__label" x="83" y="46">OpenAI API</text>
+          <text class="node__sub" x="83" y="62">chat + embeddings</text>
+        </g>
+
+        <g class="node" data-role="service" data-act="4" transform="translate(940,100)">
+          <title>Grafana</title>
+          <g class="node__body"><rect class="node__shape" x="0" y="0" width="160" height="80" rx="8"/></g>
+          <text class="node__label" x="80" y="42">Grafana</text>
+          <text class="node__sub" x="80" y="60">dashboards</text>
+        </g>
+
+        <g class="node" data-role="service" data-act="4" transform="translate(940,260)">
+          <title>Prometheus</title>
+          <g class="node__body"><rect class="node__shape" x="0" y="0" width="160" height="80" rx="8"/></g>
+          <text class="node__label" x="80" y="42">Prometheus</text>
+          <text class="node__sub" x="80" y="60">metrics TSDB</text>
+        </g>
+
+        <g class="node" data-role="service" data-act="4" transform="translate(940,420)">
+          <title>Host Metrics</title>
+          <g class="node__body"><rect class="node__shape" x="0" y="0" width="160" height="80" rx="8"/></g>
+          <text class="node__label" x="80" y="42">Host Metrics</text>
+          <text class="node__sub" x="80" y="60">node_exporter · cadvisor</text>
+        </g>
+      </g>
+    </g>
+  </svg>
+  <ul class="legend">
+    <li class="legend__item" data-role="client"><span class="legend__swatch"></span>client</li>
+    <li class="legend__item" data-role="service"><span class="legend__swatch"></span>service</li>
+    <li class="legend__item" data-role="data"><span class="legend__swatch"></span>data store</li>
+    <li class="legend__item" data-role="external"><span class="legend__swatch"></span>external</li>
+  </ul>
+</main>
+</body>
+</html>

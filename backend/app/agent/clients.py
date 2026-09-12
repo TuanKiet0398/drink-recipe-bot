@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+import httpx
 from chromadb import PersistentClient
 from openai import OpenAI
 from sqlalchemy.orm import Session
@@ -16,6 +17,17 @@ from app.config import get_settings
 # would hold its own stale copy and a save would take effect unevenly.
 _chat_cache: dict[str, object] = {}
 
+# httpx's default keepalive_expiry is 5s. Real users take longer than that
+# between messages, so the connection to the LLM provider was closed and
+# renegotiated (a slow TLS handshake) on almost every turn. Keeping it open
+# for 5 minutes means only the first message after a longer gap pays that
+# cost.
+_KEEPALIVE_EXPIRY_SECONDS = 300.0
+
+
+def _http_client() -> httpx.Client:
+    return httpx.Client(limits=httpx.Limits(max_keepalive_connections=20, keepalive_expiry=_KEEPALIVE_EXPIRY_SECONDS))
+
 
 @lru_cache
 def get_embedding_client() -> OpenAI:
@@ -24,7 +36,7 @@ def get_embedding_client() -> OpenAI:
     The Chroma index is built with text-embedding-3-small; routing this
     through the configured chat provider would invalidate every vector.
     """
-    return OpenAI(api_key=get_settings().openai_api_key)
+    return OpenAI(api_key=get_settings().openai_api_key, http_client=_http_client())
 
 
 def build_chat_client(provider: str, base_url: str | None, api_key: str) -> OpenAI:
@@ -35,7 +47,11 @@ def build_chat_client(provider: str, base_url: str | None, api_key: str) -> Open
     # placeholder keeps a credential-free provider working.
     if not api_key and provider == "ollama":
         api_key = "ollama"
-    return OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
+    return (
+        OpenAI(api_key=api_key, base_url=base_url, http_client=_http_client())
+        if base_url
+        else OpenAI(api_key=api_key, http_client=_http_client())
+    )
 
 
 def invalidate_chat_client() -> None:

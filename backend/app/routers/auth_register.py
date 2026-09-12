@@ -7,6 +7,7 @@ from app.auth import hash_password, log_admin_action
 from app.config import get_settings
 from app.db.base import get_db
 from app.db.models import Account
+from app.routers.admin_chat import get_web_user
 
 router = APIRouter(prefix="/auth")
 
@@ -39,4 +40,7 @@ def register(payload: RegisterPayload, request: Request, db: Session = Depends(g
         target=payload.username,
         ip=request.client.host if request.client else "",
     )
+    # Create the chat User eagerly so the account shows up on the Users page
+    # right away, instead of only after its first chat message.
+    get_web_user(db, payload.username)
     return {"username": payload.username}

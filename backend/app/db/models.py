@@ -20,6 +20,10 @@ class Channel(Base):
     encrypted_credentials: Mapped[str] = mapped_column(String)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    # sha256 of the bot token, used to recognize the same bot when a soft-deleted
+    # channel is re-added, so its users and their memory are revived, not duplicated.
+    token_hash: Mapped[str | None] = mapped_column(String, index=True, default=None)
 
     users: Mapped[list["User"]] = relationship(back_populates="channel")
 

@@ -1,4 +1,6 @@
+import hashlib
 import json
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -8,8 +10,21 @@ from app.auth import log_admin_action, require_admin
 from app.channel_manager import channel_manager
 from app.crypto import decrypt, encrypt
 from app.db.base import get_db
-from app.db.models import Channel, Favourite, Message, TokenUsage, User
+from app.db.models import (
+    Channel,
+    ConversationSummary,
+    CustomerNote,
+    Favourite,
+    Message,
+    RecommendationHistory,
+    TokenUsage,
+    User,
+)
 from app.telegram_client import get_me
+
+
+def _token_hash(bot_token: str) -> str:
+    return hashlib.sha256(bot_token.encode("utf-8")).hexdigest()
 
 router = APIRouter(prefix="/admin/channels")
 
@@ -46,7 +61,7 @@ def _serialize(channel: Channel) -> dict:
 
 
 def _get_channel_or_404(db: Session, channel_id: int) -> Channel:
-    channel = db.query(Channel).filter_by(id=channel_id).one_or_none()
+    channel = db.query(Channel).filter_by(id=channel_id, deleted_at=None).one_or_none()
     if channel is None:
         raise HTTPException(status_code=404, detail="Channel not found")
     return channel
@@ -62,14 +77,32 @@ async def create_channel(
     if payload.channel_type not in ALLOWED_CHANNEL_TYPES:
         raise HTTPException(status_code=400, detail=f"Unsupported channel_type: {payload.channel_type}")
 
-    channel = Channel(
-        key=payload.key,
-        display_name=payload.display_name,
-        channel_type=payload.channel_type,
-        encrypted_credentials=encrypt(json.dumps({"bot_token": payload.bot_token})),
-        is_active=True,
+    token_hash = _token_hash(payload.bot_token)
+    revived = (
+        db.query(Channel)
+        .filter(Channel.token_hash == token_hash, Channel.deleted_at.is_not(None))
+        .one_or_none()
     )
-    db.add(channel)
+
+    if revived is not None:
+        revived.key = payload.key
+        revived.display_name = payload.display_name
+        revived.channel_type = payload.channel_type
+        revived.encrypted_credentials = encrypt(json.dumps({"bot_token": payload.bot_token}))
+        revived.is_active = True
+        revived.deleted_at = None
+        channel = revived
+    else:
+        channel = Channel(
+            key=payload.key,
+            display_name=payload.display_name,
+            channel_type=payload.channel_type,
+            encrypted_credentials=encrypt(json.dumps({"bot_token": payload.bot_token})),
+            is_active=True,
+            token_hash=token_hash,
+        )
+        db.add(channel)
+
     db.commit()
     db.refresh(channel)
 
@@ -101,7 +134,10 @@ async def test_connection(
 def list_channels(db: Session = Depends(get_db), admin_user: str = Depends(require_admin)):
     # The "web" channel backs in-panel chat accounts; it is not editable here.
     channels = (
-        db.query(Channel).filter(Channel.channel_type != "web").order_by(Channel.created_at.desc()).all()
+        db.query(Channel)
+        .filter(Channel.channel_type != "web", Channel.deleted_at.is_(None))
+        .order_by(Channel.created_at.desc())
+        .all()
     )
     return [_serialize(c) for c in channels]
 
@@ -162,24 +198,29 @@ async def delete_channel(
     channel = _get_channel_or_404(db, channel_id)
     key = channel.key
 
-    user_ids = [u.id for u in db.query(User.id).filter_by(channel_id=channel_id).all()]
-    if user_ids and not force:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Cannot delete: {len(user_ids)} user(s) still belong to this channel. "
-            "Deactivate it instead, or delete with force to also erase their chat history.",
-        )
+    if force:
+        user_ids = [u.id for u in db.query(User.id).filter_by(channel_id=channel_id).all()]
+        if user_ids:
+            db.query(Message).filter(Message.user_id.in_(user_ids)).delete(synchronize_session="fetch")
+            db.query(Favourite).filter(Favourite.user_id.in_(user_ids)).delete(synchronize_session="fetch")
+            db.query(TokenUsage).filter(TokenUsage.user_id.in_(user_ids)).delete(synchronize_session="fetch")
+            db.query(CustomerNote).filter(CustomerNote.user_id.in_(user_ids)).delete(
+                synchronize_session="fetch"
+            )
+            db.query(ConversationSummary).filter(ConversationSummary.user_id.in_(user_ids)).delete(
+                synchronize_session="fetch"
+            )
+            db.query(RecommendationHistory).filter(RecommendationHistory.user_id.in_(user_ids)).delete(
+                synchronize_session="fetch"
+            )
+            db.query(User).filter(User.id.in_(user_ids)).delete(synchronize_session="fetch")
+        db.delete(channel)
+    else:
+        # Soft delete: keep the channel row, its users and their memory, so
+        # re-adding the same bot (matched by token_hash) revives everything.
+        channel.deleted_at = datetime.now(UTC)
+        channel.is_active = False
 
-    if user_ids:
-        # Deletes the users' conversation history permanently — only reached
-        # when the admin explicitly opted into ?force=true after being
-        # warned by the 409 above.
-        db.query(Message).filter(Message.user_id.in_(user_ids)).delete(synchronize_session="fetch")
-        db.query(Favourite).filter(Favourite.user_id.in_(user_ids)).delete(synchronize_session="fetch")
-        db.query(TokenUsage).filter(TokenUsage.user_id.in_(user_ids)).delete(synchronize_session="fetch")
-        db.query(User).filter(User.id.in_(user_ids)).delete(synchronize_session="fetch")
-
-    db.delete(channel)
     db.commit()
 
     log_admin_action(
