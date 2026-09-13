@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Python floor is `>=3.11` (`backend/pyproject.toml`). Ruff is configured with `line-length = 110`, `target-version = "py311"`, `select = ["E", "F", "I", "UP", "B"]`. Run `ruff check . && ruff format --check .` in `backend/` before every commit.
-- Backend tests run from `backend/`: `OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY=***REMOVED*** pytest -q`. Both env vars must be set or collection fails.
+- Backend tests run from `backend/`: `OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY= pytest -q`. Both env vars must be set or collection fails.
 - Frontend tests run from `frontend/`: `npm run test` (Vitest). **Two tests fail before this work starts** — `tests/welcome/WelcomePage.test.tsx` and `tests/App.test.tsx`, both from `getByRole("link", { name: "Enter Admin Panel" })` matching multiple elements. They are pre-existing and out of scope. Do not fix them, and do not treat them as regressions.
 - Providers are exactly `"openai"` and `"ollama"`. No others.
 - **The API key is never returned by any endpoint, never written to the audit log, and never rendered in the UI — not even masked.**
@@ -231,7 +231,7 @@ def test_providers_are_exactly_openai_and_ollama():
 
 Run:
 ```bash
-cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY=***REMOVED*** pytest tests/test_llm_settings.py -q
+cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY= pytest tests/test_llm_settings.py -q
 ```
 Expected: FAIL — `ModuleNotFoundError: No module named 'app.llm_settings'`
 
@@ -329,7 +329,7 @@ def save(
 
 Run:
 ```bash
-cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY=***REMOVED*** pytest tests/test_llm_settings.py -q
+cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY= pytest tests/test_llm_settings.py -q
 ```
 Expected: PASS, 9 tests.
 
@@ -337,8 +337,8 @@ Expected: PASS, 9 tests.
 
 ```bash
 cd backend && rm -f /tmp/llm-mig-check.db
-DATABASE_URL=sqlite:////tmp/llm-mig-check.db OPENAI_API_KEY=x ENCRYPTION_KEY=***REMOVED*** alembic upgrade head
-DATABASE_URL=sqlite:////tmp/llm-mig-check.db OPENAI_API_KEY=x ENCRYPTION_KEY=***REMOVED*** alembic downgrade 0003
+DATABASE_URL=sqlite:////tmp/llm-mig-check.db OPENAI_API_KEY=x ENCRYPTION_KEY= alembic upgrade head
+DATABASE_URL=sqlite:////tmp/llm-mig-check.db OPENAI_API_KEY=x ENCRYPTION_KEY= alembic downgrade 0003
 rm -f /tmp/llm-mig-check.db
 ```
 Expected: both commands exit 0. Upgrade must show `0003 -> 0004`.
@@ -476,7 +476,7 @@ def test_get_openai_client_is_gone():
 
 Run:
 ```bash
-cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY=***REMOVED*** pytest tests/test_agent_clients.py -q
+cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY= pytest tests/test_agent_clients.py -q
 ```
 Expected: FAIL — `cannot import name 'get_embedding_client'`
 
@@ -568,7 +568,7 @@ def get_or_create_collection(chroma_client, name: str = "matcha_knowledge"):
 
 Run:
 ```bash
-cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY=***REMOVED*** pytest tests/test_agent_clients.py tests/test_llm_settings.py -q
+cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY= pytest tests/test_agent_clients.py tests/test_llm_settings.py -q
 ```
 Expected: PASS. The rest of the suite is expected to be red at this point — Task 3 fixes the callers.
 
@@ -852,7 +852,7 @@ Do not weaken any assertion to make a test pass. If an assertion no longer holds
 
 Run:
 ```bash
-cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY=***REMOVED*** pytest -q
+cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY= pytest -q
 ```
 Expected: PASS, no failures. This is the gate for the task — the count must be at least the 153 tests that passed before, plus the tests added in Tasks 1 and 2.
 
@@ -1155,7 +1155,7 @@ def test_put_with_a_blank_key_keeps_the_stored_one(client, db_session):
 
 Run:
 ```bash
-cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY=***REMOVED*** pytest tests/test_admin_llm_settings.py -q
+cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY= pytest tests/test_admin_llm_settings.py -q
 ```
 Expected: FAIL — the routes return 404.
 
@@ -1296,14 +1296,14 @@ In `backend/app/main.py`, add `admin_llm_settings` to the routers import list an
 
 Run:
 ```bash
-cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY=***REMOVED*** pytest tests/test_admin_llm_settings.py -q
+cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY= pytest tests/test_admin_llm_settings.py -q
 ```
 Expected: PASS, 15 tests.
 
 - [ ] **Step 6: Run the whole suite, lint, and commit**
 
 ```bash
-cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY=***REMOVED*** pytest -q
+cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY= pytest -q
 cd backend && ruff check . && ruff format --check .
 git add backend/app/routers/admin_llm_settings.py backend/app/main.py backend/tests/test_admin_llm_settings.py
 git commit -m "feat: add the LLM settings admin API"
@@ -1785,7 +1785,7 @@ git commit -m "docs: document the LLM provider settings"
 
 After all tasks are done:
 
-- [ ] `cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY=***REMOVED*** pytest -q` — the whole suite passes
+- [ ] `cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY= pytest -q` — the whole suite passes
 - [ ] `cd backend && ruff check . && ruff format --check .` — clean
 - [ ] `cd backend && ! grep -rn "get_openai_client" app/ tests/` — no references to the removed function survive
 - [ ] `cd backend && grep -rn "REWRITE_MODEL\|RERANK_MODEL\|CHUNK_MODEL" app/` — no matches; those constants are gone

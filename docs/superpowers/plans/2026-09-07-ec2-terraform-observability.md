@@ -300,7 +300,7 @@ Expected: PASS, 9 tests.
 
 - [ ] **Step 6: Run the whole suite**
 
-Run: `cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY=***REMOVED*** pytest -q`
+Run: `cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY= pytest -q`
 Expected: PASS, no regressions.
 
 - [ ] **Step 7: Commit**
@@ -1019,7 +1019,7 @@ Expected: PASS.
 - [ ] **Step 6: Run the whole suite and check by hand**
 
 ```bash
-cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY=***REMOVED*** pytest -q
+cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY= pytest -q
 ```
 
 Then run the server and confirm the endpoint by hand:
@@ -1079,7 +1079,7 @@ cd backend && ruff check --fix . && ruff format .
 
 - [ ] **Step 4: Verify the suite still passes**
 
-Run: `cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY=***REMOVED*** pytest -q`
+Run: `cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY= pytest -q`
 Expected: PASS. If formatting changed behaviour, something else is wrong — investigate rather than reverting the tests.
 
 - [ ] **Step 5: Confirm the gate is clean**
@@ -2294,7 +2294,7 @@ git commit -m "docs: document infrastructure bootstrap and operations"
 
 After all tasks are done:
 
-- [ ] `cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY=***REMOVED*** pytest -q` — the whole suite passes
+- [ ] `cd backend && OPENAI_API_KEY=test-key-not-real ENCRYPTION_KEY= pytest -q` — the whole suite passes
 - [ ] `cd backend && ruff check . && ruff format --check .` — clean
 - [ ] `cd infra && terraform fmt -check && terraform validate` — clean
 - [ ] `docker compose -f docker-compose.prod.yml config` — valid with `GHCR_REPO` and `GRAFANA_ADMIN_PASSWORD` set
