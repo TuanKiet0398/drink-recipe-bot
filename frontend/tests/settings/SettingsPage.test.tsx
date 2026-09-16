@@ -21,7 +21,7 @@ const SAVED_SETTINGS = {
 beforeEach(() => {
   sessionStorage.clear();
   import.meta.env.VITE_API_BASE_URL = API_BASE;
-  storeCredentials("admin", "admin");
+  storeCredentials("admin", "admin", "admin");
   server.use(http.get(`${API_BASE}/admin/llm-settings`, () => HttpResponse.json(SAVED_SETTINGS)));
 });
 

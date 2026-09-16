@@ -10,7 +10,7 @@ import { UsagePage } from "../../src/usage/UsagePage";
 beforeEach(() => {
   sessionStorage.clear();
   import.meta.env.VITE_API_BASE_URL = API_BASE;
-  storeCredentials("admin", "admin");
+  storeCredentials("admin", "admin", "admin");
 });
 
 const emptySummary = { total_calls: 0, total_tokens: 0, estimated_cost_usd: 0, by_model: [] };

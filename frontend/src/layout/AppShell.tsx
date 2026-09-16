@@ -2,7 +2,7 @@ import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { BrandIcon } from "../components/BrandIcon";
 
-const NAV_GROUPS = [
+const ADMIN_NAV_GROUPS = [
   {
     label: "Main",
     links: [
@@ -32,6 +32,13 @@ const NAV_GROUPS = [
   },
 ];
 
+const CUSTOMER_NAV_GROUPS = [
+  {
+    label: "Main",
+    links: [{ to: "/panel/chat", name: "Chat" }],
+  },
+];
+
 const linkClass = ({ isActive }: { isActive: boolean }) =>
   `block rounded-lg px-2.5 py-2 text-[13px] font-semibold transition-colors ${
     isActive
@@ -40,7 +47,8 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
   }`;
 
 export function AppShell() {
-  const { logout, username } = useAuth();
+  const { logout, username, isAdmin } = useAuth();
+  const navGroups = isAdmin ? ADMIN_NAV_GROUPS : CUSTOMER_NAV_GROUPS;
 
   return (
     <div className="flex min-h-screen bg-admin-bg text-admin-fg">
@@ -49,7 +57,7 @@ export function AppShell() {
           <BrandIcon className="h-5 w-5 text-admin-primary-dark" />
           <div className="flex flex-col leading-tight">
             <span className="text-[13px] font-bold text-admin-primary-dark">Shop Assistant</span>
-            <span className="text-[11px] text-admin-muted">Admin panel</span>
+            <span className="text-[11px] text-admin-muted">{isAdmin ? "Admin panel" : "Chat"}</span>
           </div>
         </div>
 
@@ -67,7 +75,7 @@ export function AppShell() {
         </div>
 
         <nav className="flex flex-1 flex-col gap-4 overflow-y-auto">
-          {NAV_GROUPS.map((group) => (
+          {navGroups.map((group) => (
             <div key={group.label} className="flex flex-col gap-0.5">
               <span className="mb-1 px-2.5 text-[10.5px] font-bold uppercase tracking-[0.06em] text-admin-label">
                 {group.label}

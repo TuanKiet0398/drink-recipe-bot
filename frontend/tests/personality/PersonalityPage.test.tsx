@@ -10,7 +10,7 @@ import { PersonalityPage } from "../../src/personality/PersonalityPage";
 beforeEach(() => {
   sessionStorage.clear();
   import.meta.env.VITE_API_BASE_URL = API_BASE;
-  storeCredentials("admin", "admin");
+  storeCredentials("admin", "admin", "admin");
   server.use(
     http.get(`${API_BASE}/admin/soul`, () => HttpResponse.json({ content: "Friendly and knowledgeable." }))
   );

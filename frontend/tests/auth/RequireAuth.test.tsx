@@ -37,7 +37,7 @@ describe("RequireAuth", () => {
   });
 
   it("renders the protected content when authenticated", () => {
-    storeCredentials("admin", "admin");
+    storeCredentials("admin", "admin", "admin");
     renderProtected("/docs");
     expect(screen.getByText("Protected Docs")).toBeInTheDocument();
   });

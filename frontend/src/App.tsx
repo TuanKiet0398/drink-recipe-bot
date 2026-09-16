@@ -1,5 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { AuthProvider } from "./auth/AuthContext";
+import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { LoginPage } from "./auth/LoginPage";
 import { RequireAuth } from "./auth/RequireAuth";
 import { AppShell } from "./layout/AppShell";
@@ -13,6 +13,12 @@ import { WelcomePage } from "./welcome/WelcomePage";
 import { ChannelsPage } from "./channels/ChannelsPage";
 import { SettingsPage } from "./settings/SettingsPage";
 import { PersonalityPage } from "./personality/PersonalityPage";
+
+/** `/panel` lands admins on Usage (their overview) and customers on Chat (their only tab). */
+function PanelIndex() {
+  const { isAdmin } = useAuth();
+  return <Navigate to={isAdmin ? "/panel/usage" : "/panel/chat"} replace />;
+}
 
 export function App() {
   return (
@@ -29,16 +35,72 @@ export function App() {
               </RequireAuth>
             }
           >
-            <Route index element={<Navigate to="/panel/usage" replace />} />
+            <Route index element={<PanelIndex />} />
             <Route path="chat" element={<ChatPage />} />
-            <Route path="docs" element={<DocsPage />} />
-            <Route path="users" element={<UsersPage />} />
-            <Route path="logs/access" element={<AccessLogPage />} />
-            <Route path="logs/audit" element={<AuditLogPage />} />
-            <Route path="usage" element={<UsagePage />} />
-            <Route path="channels" element={<ChannelsPage />} />
-            <Route path="settings" element={<SettingsPage />} />
-            <Route path="personality" element={<PersonalityPage />} />
+            <Route
+              path="docs"
+              element={
+                <RequireAuth adminOnly>
+                  <DocsPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="users"
+              element={
+                <RequireAuth adminOnly>
+                  <UsersPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="logs/access"
+              element={
+                <RequireAuth adminOnly>
+                  <AccessLogPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="logs/audit"
+              element={
+                <RequireAuth adminOnly>
+                  <AuditLogPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="usage"
+              element={
+                <RequireAuth adminOnly>
+                  <UsagePage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="channels"
+              element={
+                <RequireAuth adminOnly>
+                  <ChannelsPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="settings"
+              element={
+                <RequireAuth adminOnly>
+                  <SettingsPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="personality"
+              element={
+                <RequireAuth adminOnly>
+                  <PersonalityPage />
+                </RequireAuth>
+              }
+            />
           </Route>
         </Routes>
       </AuthProvider>

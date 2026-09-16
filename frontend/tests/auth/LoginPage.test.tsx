@@ -36,7 +36,7 @@ describe("LoginPage", () => {
     await userEvent.click(screen.getByRole("button", { name: "Log in" }));
 
     await waitFor(() => expect(screen.getByText("Docs Page")).toBeInTheDocument());
-    expect(getStoredCredentials()).toEqual({ username: "admin", password: "admin" });
+    expect(getStoredCredentials()).toEqual({ username: "admin", password: "admin", role: "admin" });
   });
 
   it("has a back link to the landing page", () => {

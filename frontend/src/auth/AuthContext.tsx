@@ -9,6 +9,7 @@ import {
 
 interface AuthContextValue {
   isAuthenticated: boolean;
+  isAdmin: boolean;
   username: string | null;
   login: (username: string, password: string) => Promise<void>;
   register: (username: string, password: string) => Promise<void>;
@@ -19,14 +20,19 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [username, setUsername] = useState<string | null>(() => getStoredCredentials()?.username ?? null);
+  const [role, setRole] = useState<string | null>(() => getStoredCredentials()?.role ?? null);
 
   useEffect(() => {
-    return onUnauthorized(() => setUsername(null));
+    return onUnauthorized(() => {
+      setUsername(null);
+      setRole(null);
+    });
   }, []);
 
   async function login(name: string, password: string): Promise<void> {
-    await apiLogin(name, password);
+    const signedInRole = await apiLogin(name, password);
     setUsername(name);
+    setRole(signedInRole);
   }
 
   async function register(name: string, password: string): Promise<void> {
@@ -37,10 +43,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   function logout(): void {
     clearCredentials();
     setUsername(null);
+    setRole(null);
   }
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated: username !== null, username, login, register, logout }}>
+    <AuthContext.Provider
+      value={{ isAuthenticated: username !== null, isAdmin: role === "admin", username, login, register, logout }}
+    >
       {children}
     </AuthContext.Provider>
   );

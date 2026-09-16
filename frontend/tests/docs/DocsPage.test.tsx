@@ -10,7 +10,7 @@ import { DocsPage } from "../../src/docs/DocsPage";
 beforeEach(() => {
   sessionStorage.clear();
   import.meta.env.VITE_API_BASE_URL = API_BASE;
-  storeCredentials("admin", "admin");
+  storeCredentials("admin", "admin", "admin");
 });
 
 describe("DocsPage", () => {

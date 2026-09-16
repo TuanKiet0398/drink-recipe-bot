@@ -20,14 +20,14 @@ beforeEach(() => {
 describe("credential storage", () => {
   it("stores and retrieves credentials from sessionStorage", () => {
     expect(getStoredCredentials()).toBeNull();
-    storeCredentials("admin", "secret");
-    expect(getStoredCredentials()).toEqual({ username: "admin", password: "secret" });
+    storeCredentials("admin", "secret", "admin");
+    expect(getStoredCredentials()).toEqual({ username: "admin", password: "secret", role: "admin" });
     clearCredentials();
     expect(getStoredCredentials()).toBeNull();
   });
 
   it("builds a Basic auth header from stored credentials", () => {
-    storeCredentials("admin", "secret");
+    storeCredentials("admin", "secret", "admin");
     expect(authHeader()).toBe(`Basic ${btoa("admin:secret")}`);
   });
 
@@ -39,7 +39,7 @@ describe("credential storage", () => {
 describe("login", () => {
   it("stores credentials on success", async () => {
     await login("admin", "admin");
-    expect(getStoredCredentials()).toEqual({ username: "admin", password: "admin" });
+    expect(getStoredCredentials()).toEqual({ username: "admin", password: "admin", role: "admin" });
   });
 
   it("throws ApiError and does not store credentials on failure", async () => {
@@ -58,21 +58,21 @@ describe("apiFetch", () => {
         return HttpResponse.json([{ id: 1, filename: "a.txt" }]);
       })
     );
-    storeCredentials("admin", "admin");
+    storeCredentials("admin", "admin", "admin");
     const result = await apiFetch<{ id: number; filename: string }[]>("/admin/docs");
     expect(result).toEqual([{ id: 1, filename: "a.txt" }]);
   });
 
   it("clears credentials and throws ApiError on 401", async () => {
     server.use(http.get(`${API_BASE}/admin/docs`, () => new HttpResponse(null, { status: 401 })));
-    storeCredentials("admin", "admin");
+    storeCredentials("admin", "admin", "admin");
     await expect(apiFetch("/admin/docs")).rejects.toBeInstanceOf(ApiError);
     expect(getStoredCredentials()).toBeNull();
   });
 
   it("returns undefined for a 204 No Content response", async () => {
     server.use(http.delete(`${API_BASE}/admin/docs/1`, () => new HttpResponse(null, { status: 204 })));
-    storeCredentials("admin", "admin");
+    storeCredentials("admin", "admin", "admin");
     const result = await apiFetch("/admin/docs/1", { method: "DELETE" });
     expect(result).toBeUndefined();
   });

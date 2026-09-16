@@ -3,6 +3,7 @@ const CREDENTIALS_KEY = "admin_credentials";
 export interface Credentials {
   username: string;
   password: string;
+  role: string;
 }
 
 export class ApiError extends Error {
@@ -36,8 +37,8 @@ export function getStoredCredentials(): Credentials | null {
   return JSON.parse(raw) as Credentials;
 }
 
-export function storeCredentials(username: string, password: string): void {
-  sessionStorage.setItem(CREDENTIALS_KEY, JSON.stringify({ username, password }));
+export function storeCredentials(username: string, password: string, role: string): void {
+  sessionStorage.setItem(CREDENTIALS_KEY, JSON.stringify({ username, password, role }));
 }
 
 export function clearCredentials(): void {
@@ -71,7 +72,7 @@ export function authHeader(): string {
   return `Basic ${btoa(`${creds.username}:${creds.password}`)}`;
 }
 
-export async function login(username: string, password: string): Promise<void> {
+export async function login(username: string, password: string): Promise<string> {
   const response = await fetch(`${apiBase()}/admin/login`, {
     method: "POST",
     headers: { Authorization: `Basic ${btoa(`${username}:${password}`)}` },
@@ -79,7 +80,9 @@ export async function login(username: string, password: string): Promise<void> {
   if (!response.ok) {
     throw new ApiError("Invalid credentials", response.status);
   }
-  storeCredentials(username, password);
+  const { role } = (await response.json()) as { role: string };
+  storeCredentials(username, password, role);
+  return role;
 }
 
 /** Creates a web account. Does not sign in — call `login` afterwards. */
