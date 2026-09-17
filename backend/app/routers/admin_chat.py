@@ -11,7 +11,7 @@ from app import llm_settings
 from app.agent.clients import get_chat_client, get_chat_model, get_chroma_client, get_embedding_client
 from app.agent.graph import run_agent
 from app.agent.state import AgentState
-from app.auth import require_admin
+from app.auth import require_account
 from app.db.base import get_db
 from app.db.models import Channel, ConversationSummary, Message, User
 from app.routers.webhook import DAILY_LIMIT_REPLY, spawn_background_extractions
@@ -76,7 +76,7 @@ def _find_web_user(db: Session, username: str) -> User | None:
 async def chat(
     payload: ChatPayload,
     db: Session = Depends(get_db),
-    username: str = Depends(require_admin),
+    username: str = Depends(require_account),
 ):
     user = get_web_user(db, username)
     if user.blocked:
@@ -88,7 +88,7 @@ async def chat(
         db.add(Message(user_id=user.id, role="user", content=payload.message))
         db.add(Message(user_id=user.id, role="assistant", content=DAILY_LIMIT_REPLY))
         db.commit()
-        return {"reply": DAILY_LIMIT_REPLY, "model": chat_model}
+        return {"reply": DAILY_LIMIT_REPLY, "model": chat_model, "retrieved_chunks": []}
 
     state = AgentState(user_id=user.id, chat_id=f"web:{user.id}", incoming_text=payload.message)
     try:
@@ -120,11 +120,11 @@ async def chat(
     state.retrieved_chunks = result.retrieved_chunks
     spawn_background_extractions(state, user.id)
 
-    return {"reply": result.reply, "model": chat_model}
+    return {"reply": result.reply, "model": chat_model, "retrieved_chunks": result.retrieved_chunks}
 
 
 @router.get("/history")
-def chat_history(db: Session = Depends(get_db), username: str = Depends(require_admin)):
+def chat_history(db: Session = Depends(get_db), username: str = Depends(require_account)):
     user = _find_web_user(db, username)
     if user is None:
         return []
@@ -144,7 +144,7 @@ def chat_history(db: Session = Depends(get_db), username: str = Depends(require_
 
 
 @router.delete("/history", status_code=204)
-def reset_chat_history(db: Session = Depends(get_db), username: str = Depends(require_admin)):
+def reset_chat_history(db: Session = Depends(get_db), username: str = Depends(require_account)):
     """Forgets the conversation, not the person: favourites, customer notes
     and recommendation history stay."""
     user = _find_web_user(db, username)

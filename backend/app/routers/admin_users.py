@@ -2,9 +2,17 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.auth import log_admin_action, require_admin
+from app.auth import log_admin_action, require_account_with_role, require_admin
 from app.db.base import get_db
-from app.db.models import Favourite, Message, User
+from app.db.models import (
+    ConversationSummary,
+    CustomerNote,
+    Favourite,
+    Message,
+    RecommendationHistory,
+    TokenUsage,
+    User,
+)
 
 router = APIRouter(prefix="/admin/users")
 
@@ -15,10 +23,11 @@ login_router = APIRouter(prefix="/admin")
 def login(
     request: Request,
     db: Session = Depends(get_db),
-    admin_user: str = Depends(require_admin),
+    account: tuple[str, str] = Depends(require_account_with_role),
 ):
-    log_admin_action(db, action="login", target=admin_user, ip=request.client.host if request.client else "")
-    return {"status": "ok"}
+    username, role = account
+    log_admin_action(db, action="login", target=username, ip=request.client.host if request.client else "")
+    return {"status": "ok", "role": role}
 
 
 @router.get("")
@@ -85,3 +94,30 @@ def unblock_user(
         ip=request.client.host if request.client else "",
     )
     return {"id": user.id, "blocked": user.blocked}
+
+
+@router.delete("/{user_id}", status_code=204)
+def delete_user(
+    user_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin_user: str = Depends(require_admin),
+):
+    """Permanently erases one customer and every piece of memory tied to
+    them. No soft-delete/undo — this is a hard delete, mirroring the force
+    branch of `delete_channel` but scoped to a single user."""
+    user = _get_user_or_404(db, user_id)
+    target = user.telegram_user_id
+
+    db.query(Message).filter_by(user_id=user_id).delete(synchronize_session="fetch")
+    db.query(Favourite).filter_by(user_id=user_id).delete(synchronize_session="fetch")
+    db.query(TokenUsage).filter_by(user_id=user_id).delete(synchronize_session="fetch")
+    db.query(CustomerNote).filter_by(user_id=user_id).delete(synchronize_session="fetch")
+    db.query(ConversationSummary).filter_by(user_id=user_id).delete(synchronize_session="fetch")
+    db.query(RecommendationHistory).filter_by(user_id=user_id).delete(synchronize_session="fetch")
+    db.delete(user)
+    db.commit()
+
+    log_admin_action(
+        db, action="delete_user", target=target, ip=request.client.host if request.client else ""
+    )

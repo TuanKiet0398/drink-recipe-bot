@@ -60,7 +60,11 @@ def test_first_message_creates_the_web_channel_and_user(client, db_session, agen
     response = client.post("/admin/chat", auth=auth, json={"message": "Cách pha matcha đá?"})
 
     assert response.status_code == 200
-    assert response.json() == {"reply": "reply to Cách pha matcha đá?", "model": "gpt-4o-mini"}
+    assert response.json() == {
+        "reply": "reply to Cách pha matcha đá?",
+        "model": "gpt-4o-mini",
+        "retrieved_chunks": ["Iced matcha: 2g matcha, 30ml water."],
+    }
     channel = db_session.query(Channel).filter_by(key="web").one()
     assert channel.channel_type == "web"
     user = db_session.query(User).filter_by(channel_id=channel.id, telegram_user_id="linh").one()
@@ -197,7 +201,9 @@ def test_channel_list_hides_the_web_channel(client, agent):
     auth = register(client, "linh")
     client.post("/admin/chat", auth=auth, json={"message": "hello"})
 
-    response = client.get("/admin/channels", auth=auth)
+    # /admin/channels is admin-only; a self-registered account is a customer
+    # and can't reach it — use the .env admin to read the channel list back.
+    response = client.get("/admin/channels", auth=("admin", "admin"))
 
     assert response.status_code == 200
     assert all(c["channel_type"] != "web" for c in response.json())
