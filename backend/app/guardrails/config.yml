@@ -2,6 +2,11 @@ models:
   - type: main
     engine: openai
     model: gpt-4o-mini
+    # Pinned to 0: the self_check_facts judge otherwise gives an
+    # inconsistent yes/no on the same evidence/reply pair from one call to
+    # the next, occasionally refusing a fully correct, KB-grounded reply.
+    parameters:
+      temperature: 0
 
 rails:
   output:
@@ -14,6 +19,11 @@ prompts:
       You are given a task to identify if the hypothesis is grounded and
       entailed to the evidence. You will only use the contents of the
       evidence and not rely on external knowledge. Answer with yes/no.
+      A hypothesis that honestly declines to answer, says the requested
+      information/item isn't available, or offers an alternative instead
+      makes no unverifiable claim and always counts as entailed (yes) —
+      only answer "no" when the hypothesis asserts something specific as
+      fact that the evidence does not support.
       "evidence": {{ evidence }}
       "hypothesis": {{ response }}
       "entails":

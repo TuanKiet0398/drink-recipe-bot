@@ -1241,3 +1241,24 @@ def test_check_facts_passes_memory_as_evidence_alongside_retrieved_chunks():
     assert any("hạt" in e for e in evidence)
     assert any("ít caffeine, hợp buổi tối" in e for e in evidence)
     assert any("thích vị rang" in e for e in evidence)
+
+
+def test_check_facts_passes_raw_history_as_evidence():
+    """A reply correctly recalling an earlier turn (e.g. "what did I ask
+    you last time?") is grounded in `state.history`, not in KB chunks or
+    the extracted memory fields — the guardrail must see the raw
+    conversation too, or it refuses a correct recollection."""
+    state = AgentState(user_id=1, chat_id="1", incoming_text="Lần trước tôi vừa hỏi công thức món gì nhỉ?")
+    state.reply = "Lần trước bạn đã hỏi công thức pha Oolong đậm."
+    state.retrieved_chunks = []
+    state.history = [
+        {"role": "user", "content": "Cho tôi công thức pha Oolong đậm"},
+        {"role": "assistant", "content": "Oolong đậm pha 6g, 95°C, hãm 4-5 phút."},
+    ]
+
+    with patch("app.agent.nodes.check_grounded", return_value=state.reply) as mock_check:
+        result = check_facts(state)
+
+    assert result.reply == state.reply
+    evidence = mock_check.call_args.args[2]
+    assert any("Oolong đậm" in e and "user:" in e for e in evidence)

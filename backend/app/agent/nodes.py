@@ -254,7 +254,12 @@ def retrieve(
     collection: str = "matcha_knowledge",
     retrieval_k: int = 10,
     final_k: int = 5,
-    score_threshold: float = 0.50,
+    # 0.50 filtered out genuinely relevant chunks scoring 0.39-0.49 (observed
+    # on real KB content, e.g. a mislabeled-but-correct brewing chunk that
+    # scored 0.394), starving generate() of context it should have had.
+    # Irrelevant queries score 0.24-0.33 on this corpus/embedding model, so
+    # 0.35 keeps that separation while admitting the legitimate matches.
+    score_threshold: float = 0.35,
 ) -> AgentState:
     def _embed(text: str) -> list[float]:
         response = retry_once(
@@ -399,10 +404,12 @@ def generate(
 
 def _memory_evidence(state: AgentState) -> list[str]:
     """Trusted evidence for the guardrail beyond KB chunks: the customer's
-    own remembered favourites, notes, summary and past recommendations —
-    the same memory the system prompt (`_build_system_prompt`) lets a reply
-    draw from. Without this, a reply correctly grounded in memory rather
-    than the KB (e.g. "what did I order last time?") has no support in
+    own remembered favourites, notes, summary, past recommendations, and
+    the raw recent conversation — everything the system prompt
+    (`_build_system_prompt`) and the chat history passed to `generate()`
+    let a reply draw from. Without this, a reply correctly grounded in
+    memory or an earlier turn rather than the KB (e.g. "what did I order
+    last time?" or "what did I tell you earlier?") has no support in
     `retrieved_chunks` and gets judged as ungrounded and refused."""
     evidence = []
     if state.favourites:
@@ -414,6 +421,9 @@ def _memory_evidence(state: AgentState) -> list[str]:
         evidence.append(f"Conversation summary so far: {state.summary}")
     if state.recommendation_history:
         evidence.append(f"Previously recommended to this customer: {'; '.join(state.recommendation_history)}.")
+    if state.history:
+        transcript = "\n".join(f"{m['role']}: {m['content']}" for m in state.history)
+        evidence.append(f"Earlier turns in this same conversation:\n{transcript}")
     return evidence
 
 
