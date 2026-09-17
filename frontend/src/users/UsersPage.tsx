@@ -42,6 +42,23 @@ export function UsersPage() {
     }
   }
 
+  async function deleteUser(user: AdminUser): Promise<void> {
+    if (
+      !window.confirm(
+        `Permanently delete "${user.telegram_user_id}"? Their messages, favourites, notes and recommendation history are all erased — this cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    try {
+      await apiFetch(`/admin/users/${user.id}`, { method: "DELETE" });
+      await loadUsers();
+    } catch {
+      setError("Failed to delete user");
+    }
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div>
@@ -88,9 +105,12 @@ export function UsersPage() {
                       {user.blocked ? "Blocked" : "Active"}
                     </span>
                   </td>
-                  <td>
+                  <td className="flex gap-2">
                     <button onClick={() => toggleBlock(user)} className={s.btnGhostPrimary}>
                       {user.blocked ? "Unblock" : "Block"}
+                    </button>
+                    <button onClick={() => deleteUser(user)} className={s.btnDanger}>
+                      Delete
                     </button>
                   </td>
                 </tr>
