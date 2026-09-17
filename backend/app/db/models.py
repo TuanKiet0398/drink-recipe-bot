@@ -30,13 +30,19 @@ class Channel(Base):
 
 class Account(Base):
     """A web login. The person chats as a `User` on the "web" channel whose
-    telegram_user_id is this username (see app.routers.admin_chat)."""
+    telegram_user_id is this username (see app.routers.admin_chat).
+
+    `role` is "customer" (self-registered, chat-only) or "admin" (full panel
+    access). Self-registration always creates "customer" — there is no
+    public path to "admin"; the only other admin is the `.env` admin, which
+    has no `Account` row at all (see `app.auth._is_env_admin`)."""
 
     __tablename__ = "accounts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     username: Mapped[str] = mapped_column(String, unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String)
+    role: Mapped[str] = mapped_column(String, default="customer", server_default="customer")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

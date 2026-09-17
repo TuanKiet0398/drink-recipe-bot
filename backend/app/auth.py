@@ -39,19 +39,16 @@ def _is_env_admin(username: str, password: str) -> bool:
     return correct_username and correct_password
 
 
-def require_admin(
-    request: Request,
-    credentials: HTTPBasicCredentials = Depends(security),
-    db: Session = Depends(get_db),
-) -> str:
-    """Any signed-in account: the .env admin or a registered web account.
-    Every account has full panel access (no roles)."""
+def _authenticate(request: Request, credentials: HTTPBasicCredentials, db: Session) -> tuple[str, str]:
+    """Verifies credentials against the .env admin or a registered web
+    account. Returns (username, role) — the .env admin's role is always
+    "admin"; a registered account's role is whatever `Account.role` says."""
     if _is_env_admin(credentials.username, credentials.password):
-        return credentials.username
+        return credentials.username, "admin"
 
     account = db.query(Account).filter_by(username=credentials.username).one_or_none()
     if account is not None and verify_password(credentials.password, account.password_hash):
-        return credentials.username
+        return credentials.username, account.role
 
     # Never log the attempted password — only the attempted username,
     # so failed logins are visible in the audit log without leaking
@@ -64,9 +61,45 @@ def require_admin(
     )
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid admin credentials",
+        detail="Invalid credentials",
         headers={"WWW-Authenticate": "Basic"},
     )
+
+
+def require_account(
+    request: Request,
+    credentials: HTTPBasicCredentials = Depends(security),
+    db: Session = Depends(get_db),
+) -> str:
+    """Any signed-in account, customer or admin — for endpoints every
+    signed-in user may use (chat)."""
+    username, _role = _authenticate(request, credentials, db)
+    return username
+
+
+def require_admin(
+    request: Request,
+    credentials: HTTPBasicCredentials = Depends(security),
+    db: Session = Depends(get_db),
+) -> str:
+    """A signed-in account with `role == "admin"` — the .env admin or an
+    `Account` explicitly promoted to admin. A self-registered account is
+    always "customer" and never reaches this: there is no public path to
+    admin access."""
+    username, role = _authenticate(request, credentials, db)
+    if role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    return username
+
+
+def require_account_with_role(
+    request: Request,
+    credentials: HTTPBasicCredentials = Depends(security),
+    db: Session = Depends(get_db),
+) -> tuple[str, str]:
+    """Same as `require_account`, but also returns the role — for the login
+    endpoint, which has to tell the frontend which role it signed in as."""
+    return _authenticate(request, credentials, db)
 
 
 def log_admin_action(db: Session, action: str, target: str = "", ip: str = "") -> None:

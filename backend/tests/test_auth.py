@@ -3,8 +3,9 @@ from unittest.mock import MagicMock
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
-from app.auth import hash_password, require_admin, verify_password
+from app.auth import hash_password, require_account, require_admin, verify_password
 from app.db.base import get_db
+from app.db.models import Account
 
 
 def test_verify_password_accepts_the_right_password_only():
@@ -54,3 +55,46 @@ def test_require_admin_rejects_bad_credentials(monkeypatch):
     assert bad.status_code == 401
 
     config.get_settings.cache_clear()
+
+
+def test_require_admin_rejects_a_self_registered_customer_account(db_session):
+    db_session.add(Account(username="linh", password_hash=hash_password("matcha-lover")))
+    db_session.commit()
+
+    probe = FastAPI()
+
+    def _fake_get_db():
+        yield db_session
+
+    probe.dependency_overrides[get_db] = _fake_get_db
+
+    @probe.get("/probe")
+    def probe_route(user: str = Depends(require_admin)):
+        return {"user": user}
+
+    client = TestClient(probe)
+
+    response = client.get("/probe", auth=("linh", "matcha-lover"))
+    assert response.status_code == 403
+
+
+def test_require_account_accepts_a_self_registered_customer_account(db_session):
+    db_session.add(Account(username="linh", password_hash=hash_password("matcha-lover")))
+    db_session.commit()
+
+    probe = FastAPI()
+
+    def _fake_get_db():
+        yield db_session
+
+    probe.dependency_overrides[get_db] = _fake_get_db
+
+    @probe.get("/probe")
+    def probe_route(user: str = Depends(require_account)):
+        return {"user": user}
+
+    client = TestClient(probe)
+
+    response = client.get("/probe", auth=("linh", "matcha-lover"))
+    assert response.status_code == 200
+    assert response.json() == {"user": "linh"}
