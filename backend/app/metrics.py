@@ -73,6 +73,8 @@ SUMMARIZE_RUNS = Counter("summarize_runs", "maybe_summarize outcomes", ["outcome
 DAILY_TOKEN_LIMIT_HITS = Counter(
     "daily_token_limit_hits", "Times a user's daily token limit blocked a reply", ["channel_id"]
 )
+RETRIEVAL_EMPTY = Counter("retrieval_empty", "Turns where retrieval returned zero chunks")
+GUARDRAIL_OUTCOME = Counter("guardrail_outcome", "self_check_facts rail outcomes", ["outcome"])
 
 
 @lru_cache
@@ -153,3 +155,17 @@ def record_daily_limit_hit(channel_id: int) -> None:
         DAILY_TOKEN_LIMIT_HITS.labels(channel_id=str(channel_id)).inc()
     except Exception:
         logger.exception("Failed to record daily limit hit for channel_id=%s", channel_id)
+
+
+def record_retrieval_empty() -> None:
+    try:
+        RETRIEVAL_EMPTY.inc()
+    except Exception:
+        logger.exception("Failed to record retrieval_empty")
+
+
+def record_guardrail_outcome(outcome: str) -> None:
+    try:
+        GUARDRAIL_OUTCOME.labels(outcome=outcome).inc()
+    except Exception:
+        logger.exception("Failed to record guardrail outcome=%s", outcome)

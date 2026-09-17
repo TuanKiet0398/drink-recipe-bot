@@ -152,6 +152,27 @@ def test_record_poll_error_counts_by_channel():
     assert _sample("telegram_poll_errors_total", labels) - before == 1
 
 
+def test_record_retrieval_empty_increments_the_counter():
+    before = _sample("retrieval_empty_total", {})
+
+    metrics.record_retrieval_empty()
+
+    assert _sample("retrieval_empty_total", {}) - before == 1
+
+
+def test_record_guardrail_outcome_counts_by_outcome():
+    labels = {"outcome": "refused"}
+    before = _sample("guardrail_outcome_total", labels)
+
+    metrics.record_guardrail_outcome("refused")
+
+    assert _sample("guardrail_outcome_total", labels) - before == 1
+
+
+def test_record_guardrail_outcome_never_raises_on_bad_input():
+    metrics.record_guardrail_outcome(None)
+
+
 def test_metrics_endpoint_is_reachable_without_auth(client):
     response = client.get("/metrics")
     assert response.status_code == 200
@@ -169,6 +190,8 @@ def test_metrics_endpoint_exposes_the_expected_collectors(client):
         "telegram_messages_total",
         "telegram_poll_errors_total",
         "active_channels",
+        "retrieval_empty_total",
+        "guardrail_outcome_total",
     ):
         assert name in body
 

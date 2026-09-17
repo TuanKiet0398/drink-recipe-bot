@@ -6,6 +6,7 @@ import pytest
 
 from app.agent import nodes
 from app.agent.nodes import (
+    check_facts,
     extract_customer_notes,
     extract_favourite,
     extract_recommendation,
@@ -1216,3 +1217,27 @@ def test_extract_customer_notes_swallows_malformed_llm_output(db_session, channe
     extract_customer_notes(state, db=db_session, chat_client=fake_openai, model="gpt-4o-mini")
 
     assert db_session.query(CustomerNote).filter_by(user_id=user.id).count() == 0
+
+
+def test_check_facts_passes_memory_as_evidence_alongside_retrieved_chunks():
+    """A reply grounded in the customer's own memory (e.g. "what did I order
+    last time?") has no support in `retrieved_chunks`, so the guardrail must
+    also see favourites/notes/summary/recommendation_history as evidence —
+    otherwise it wrongly refuses a correct, memory-grounded reply."""
+    state = AgentState(user_id=1, chat_id="1", incoming_text="Tôi lần trước uống gì nhỉ?")
+    state.reply = "Lần trước bạn đã gọi hojicha latte."
+    state.retrieved_chunks = []
+    state.favourites = ["hojicha latte"]
+    state.customer_notes = {"allergy": "hạt"}
+    state.summary = "Khách thích vị rang, ít caffeine."
+    state.recommendation_history = ["hojicha latte (ít caffeine, hợp buổi tối)"]
+
+    with patch("app.agent.nodes.check_grounded", return_value=state.reply) as mock_check:
+        result = check_facts(state)
+
+    assert result.reply == state.reply
+    evidence = mock_check.call_args.args[2]
+    assert any("hojicha latte" in e and "favourite" in e.lower() for e in evidence)
+    assert any("hạt" in e for e in evidence)
+    assert any("ít caffeine, hợp buổi tối" in e for e in evidence)
+    assert any("thích vị rang" in e for e in evidence)

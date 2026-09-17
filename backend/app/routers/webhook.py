@@ -165,6 +165,12 @@ async def process_telegram_message(
         # run_agent makes blocking OpenAI/Chroma calls, so it runs off the
         # event loop thread — otherwise it would stall every other request
         # (including the admin API) for the duration of the LLM call.
+        #
+        # on_delta is intentionally not wired up here: the graph's
+        # `check_facts` node runs the guardrails self-check-facts rail after
+        # `generate`, and it needs the complete reply before it can decide
+        # whether to substitute a refusal — a live per-token Telegram edit
+        # would leak an ungrounded answer before that check ever runs.
         result = await asyncio.to_thread(
             run_agent,
             state,
@@ -173,7 +179,6 @@ async def process_telegram_message(
             chat_client=get_chat_client(db),
             embedding_client=get_embedding_client(),
             chat_model=get_chat_model(db),
-            on_delta=deliverer.on_delta,
         )
         reply = result.reply or FALLBACK_REPLY
         retrieved_chunks = result.retrieved_chunks

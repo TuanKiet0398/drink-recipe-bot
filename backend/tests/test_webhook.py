@@ -40,7 +40,11 @@ async def test_process_message_creates_user_stores_message_and_replies(db_sessio
 
 
 @pytest.mark.asyncio
-async def test_process_message_delivers_streamed_reply_progressively(db_session, channel_id):
+async def test_process_message_delivers_the_final_reply_once_generation_completes(db_session, channel_id):
+    """on_delta is intentionally not wired to run_agent (see webhook.py):
+    the guardrails self-check-facts rail needs the complete reply before it
+    can decide whether to substitute a refusal, so nothing is delivered to
+    Telegram until the full (possibly rail-replaced) reply is ready."""
     with (
         patch("app.routers.webhook.run_agent") as mock_run_agent,
         patch("app.routers.webhook.send_message", new_callable=AsyncMock) as mock_send,
@@ -54,9 +58,7 @@ async def test_process_message_delivers_streamed_reply_progressively(db_session,
         mock_send.return_value = 999
 
         def fake_run_agent(state, **kwargs):
-            on_delta = kwargs["on_delta"]
-            on_delta("Try ")
-            on_delta("Try our matcha!")
+            assert "on_delta" not in kwargs
             state.reply = "Try our matcha!"
             return state
 
@@ -66,9 +68,7 @@ async def test_process_message_delivers_streamed_reply_progressively(db_session,
 
     mock_send.assert_awaited_once()
     assert mock_send.call_args.kwargs["text"] == THINKING_PLACEHOLDER
-    assert mock_edit.await_count == 2
-    mock_edit.assert_any_await("TEST_TOKEN", chat_id="222", message_id=999, text="Try ")
-    mock_edit.assert_awaited_with("TEST_TOKEN", chat_id="222", message_id=999, text="Try our matcha!")
+    mock_edit.assert_awaited_once_with("TEST_TOKEN", chat_id="222", message_id=999, text="Try our matcha!")
 
 
 @pytest.mark.asyncio

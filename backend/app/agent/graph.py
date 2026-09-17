@@ -3,7 +3,7 @@ from collections.abc import Callable
 from langgraph.graph import END, StateGraph
 from sqlalchemy.orm import Session
 
-from app.agent.nodes import fetch_history, generate, retrieve
+from app.agent.nodes import check_facts, fetch_history, generate, retrieve
 from app.agent.state import AgentState
 from app.metrics import AGENT_NODE_DURATION
 
@@ -44,11 +44,13 @@ def build_graph(
         "generate",
         _timed("generate", lambda s: generate(s, db, chat_client, chat_model, on_delta=on_delta)),
     )
+    graph.add_node("check_facts", _timed("check_facts", check_facts))
 
     graph.set_entry_point("fetch_history")
     graph.add_edge("fetch_history", "retrieve")
     graph.add_edge("retrieve", "generate")
-    graph.add_edge("generate", END)
+    graph.add_edge("generate", "check_facts")
+    graph.add_edge("check_facts", END)
 
     return graph.compile()
 

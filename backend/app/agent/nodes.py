@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 from app.agent.clients import get_or_create_collection
 from app.agent.state import AgentState
 from app.db.models import ConversationSummary, CustomerNote, Favourite, Message, RecommendationHistory
-from app.metrics import RETRIEVE_CHUNKS, record_extraction, record_summarize
+from app.guardrails.fact_check import check_grounded
+from app.metrics import RETRIEVE_CHUNKS, record_extraction, record_retrieval_empty, record_summarize
 from app.retry import retry_once
 from app.token_usage import log_token_usage
 
@@ -291,6 +292,7 @@ def retrieve(
         logger.exception("retrieval failed for user_id=%s", state.user_id)
         state.retrieved_chunks = []
         RETRIEVE_CHUNKS.observe(0)
+        record_retrieval_empty()
         return state
 
     merged = sorted(best_scores, key=best_scores.get, reverse=True)
@@ -298,6 +300,8 @@ def retrieve(
         :final_k
     ]
     RETRIEVE_CHUNKS.observe(len(state.retrieved_chunks))
+    if not state.retrieved_chunks:
+        record_retrieval_empty()
     return state
 
 
@@ -390,6 +394,37 @@ def generate(
     reply_text, usage = retry_once(_stream_once, call_type="generate", model=model)
     log_token_usage(db, state.user_id, "generate", model, usage)
     state.reply = reply_text
+    return state
+
+
+def _memory_evidence(state: AgentState) -> list[str]:
+    """Trusted evidence for the guardrail beyond KB chunks: the customer's
+    own remembered favourites, notes, summary and past recommendations —
+    the same memory the system prompt (`_build_system_prompt`) lets a reply
+    draw from. Without this, a reply correctly grounded in memory rather
+    than the KB (e.g. "what did I order last time?") has no support in
+    `retrieved_chunks` and gets judged as ungrounded and refused."""
+    evidence = []
+    if state.favourites:
+        evidence.append(f"Customer's favourite drinks: {', '.join(state.favourites)}.")
+    if state.customer_notes:
+        notes = "; ".join(f"{k}: {v}" for k, v in state.customer_notes.items())
+        evidence.append(f"Customer notes: {notes}.")
+    if state.summary:
+        evidence.append(f"Conversation summary so far: {state.summary}")
+    if state.recommendation_history:
+        evidence.append(f"Previously recommended to this customer: {'; '.join(state.recommendation_history)}.")
+    return evidence
+
+
+def check_facts(state: AgentState) -> AgentState:
+    """Runs the reply through the NeMo Guardrails `self check facts` output
+    rail before it ever reaches the user, substituting a refusal message if
+    it isn't grounded in `retrieved_chunks` or the customer's own memory.
+    Runs after the full reply is generated (not streamed token-by-token) so
+    nothing ungrounded can leak out before this check completes."""
+    evidence = state.retrieved_chunks + _memory_evidence(state)
+    state.reply = check_grounded(state.incoming_text, state.reply, evidence)
     return state
 
 
