@@ -1,0 +1,78 @@
+<svg class="ak-diagram-svg" viewBox="0 0 1400 432" width="100%" height="auto" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Matcha Bot — High-Level Architecture"><title>Matcha Bot — High-Level Architecture</title><defs><style>
+      svg {
+        --ak-bg: #ffffff; --ak-surface: #f8fafc; --ak-surface-border: #e2e8f0;
+        --ak-text-primary: #0f172a; --ak-text-secondary: #475569; --ak-text-muted: #94a3b8;
+        --ak-accent: #2563eb; --ak-node-bg: #ffffff; --ak-node-border: #cbd5e1;
+        --ak-edge-stroke: #64748b; --ak-edge-active: #2563eb;
+        --ak-font-sans: system-ui, -apple-system, sans-serif;
+        font-family: var(--ak-font-sans);
+      }
+      svg { --ak-bg: #090d16; --ak-text-primary: #f8fafc; --ak-text-secondary: #94a3b8; --ak-node-bg: #0f172a; --ak-node-border: #334155; --ak-edge-stroke: #475569; --ak-edge-active: #38bdf8; }
+      
+      svg { --ak-bg: #0f2744; --ak-text-primary: #e0f2fe; --ak-node-bg: #0c213a; --ak-node-border: #38bdf8; --ak-edge-stroke: #7dd3fc; }
+      
+    </style><marker id="ak-arrowhead-6e842b88" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="var(--ak-edge-stroke)" />
+    </marker>
+  </defs><g class="ak-boundary" data-boundary-id="clients-zone">
+        <rect x="44" y="52" width="192" height="212" rx="12" fill="none" stroke="var(--ak-surface-border)" stroke-width="1.5" stroke-dasharray="6 4" />
+        <text x="56" y="70" font-size="11" font-weight="600" fill="var(--ak-text-muted)" font-family="var(--ak-font-sans)">Clients</text>
+      </g><g class="ak-boundary" data-boundary-id="backend-boundary">
+        <rect x="304" y="52" width="452" height="212" rx="12" fill="none" stroke="var(--ak-surface-border)" stroke-width="1.5" stroke-dasharray="6 4" />
+        <text x="316" y="70" font-size="11" font-weight="600" fill="var(--ak-text-muted)" font-family="var(--ak-font-sans)">Backend Service (FastAPI, Docker)</text>
+      </g><g class="ak-boundary" data-boundary-id="data-ai-boundary">
+        <rect x="824" y="52" width="192" height="316" rx="12" fill="none" stroke="var(--ak-surface-border)" stroke-width="1.5" stroke-dasharray="6 4" />
+        <text x="836" y="70" font-size="11" font-weight="600" fill="var(--ak-text-muted)" font-family="var(--ak-font-sans)">Data &amp; AI</text>
+      </g><g class="ak-boundary" data-boundary-id="obs-boundary">
+        <rect x="1084" y="52" width="192" height="108" rx="12" fill="none" stroke="var(--ak-surface-border)" stroke-width="1.5" stroke-dasharray="6 4" />
+        <text x="1096" y="70" font-size="11" font-weight="600" fill="var(--ak-text-muted)" font-family="var(--ak-font-sans)">Observability</text>
+      </g><g class="ak-edge" data-from="customer" data-to="backend-api" data-edge-id="edge-customer-backend-api-0">
+        <path d="M 220 216 C 270 216, 270 112, 320 112" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-6e842b88)" /><text x="270" y="158" font-size="10" font-weight="500" fill="var(--ak-text-secondary)" text-anchor="middle" font-family="var(--ak-font-sans)" style="stroke:none;stroke-width:0;">web chat message (primary)</text></g><g class="ak-edge" data-from="customer" data-to="telegram-poller" data-edge-id="edge-customer-telegram-poller-1">
+        <path d="M 220 216 C 270 216, 270 216, 320 216" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-6e842b88)" /><text x="270" y="210" font-size="10" font-weight="500" fill="var(--ak-text-secondary)" text-anchor="middle" font-family="var(--ak-font-sans)" style="stroke:none;stroke-width:0;">Telegram message</text></g><g class="ak-edge" data-from="telegram-poller" data-to="backend-api" data-edge-id="edge-telegram-poller-backend-api-2">
+        <path d="M 480 216 C 540 256, 260 152, 320 112" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-6e842b88)" /><text x="400" y="158" font-size="10" font-weight="500" fill="var(--ak-text-secondary)" text-anchor="middle" font-family="var(--ak-font-sans)" style="stroke:none;stroke-width:0;">process_telegram_message</text></g><g class="ak-edge" data-from="admin-spa" data-to="backend-api" data-edge-id="edge-admin-spa-backend-api-3">
+        <path d="M 220 112 C 270 112, 270 112, 320 112" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-6e842b88)" /><text x="270" y="106" font-size="10" font-weight="500" fill="var(--ak-text-secondary)" text-anchor="middle" font-family="var(--ak-font-sans)" style="stroke:none;stroke-width:0;">staff ops + account chat (Basic Auth)</text></g><g class="ak-edge" data-from="backend-api" data-to="langgraph-agent" data-edge-id="edge-backend-api-langgraph-agent-4">
+        <path d="M 480 112 C 530 112, 530 216, 580 216" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-6e842b88)" /><text x="530" y="158" font-size="10" font-weight="500" fill="var(--ak-text-secondary)" text-anchor="middle" font-family="var(--ak-font-sans)" style="stroke:none;stroke-width:0;">run_agent (primary)</text></g><g class="ak-edge" data-from="langgraph-agent" data-to="chroma" data-edge-id="edge-langgraph-agent-chroma-5">
+        <path d="M 740 216 C 790 216, 790 112, 840 112" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-6e842b88)" /><text x="790" y="158" font-size="10" font-weight="500" fill="var(--ak-text-secondary)" text-anchor="middle" font-family="var(--ak-font-sans)" style="stroke:none;stroke-width:0;">retrieve KB chunks (primary)</text></g><g class="ak-edge" data-from="langgraph-agent" data-to="openai" data-edge-id="edge-langgraph-agent-openai-6">
+        <path d="M 740 216 C 790 216, 790 216, 840 216" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-6e842b88)" /><text x="790" y="210" font-size="10" font-weight="500" fill="var(--ak-text-secondary)" text-anchor="middle" font-family="var(--ak-font-sans)" style="stroke:none;stroke-width:0;">generate reply / embed (primary)</text></g><g class="ak-edge" data-from="langgraph-agent" data-to="guardrails" data-edge-id="edge-langgraph-agent-guardrails-7">
+        <path d="M 740 216 C 800 256, 520 152, 580 112" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-6e842b88)" /><text x="660" y="158" font-size="10" font-weight="500" fill="var(--ak-text-secondary)" text-anchor="middle" font-family="var(--ak-font-sans)" style="stroke:none;stroke-width:0;">fact-check reply (primary)</text></g><g class="ak-edge" data-from="langgraph-agent" data-to="sqlite" data-edge-id="edge-langgraph-agent-sqlite-8">
+        <path d="M 740 216 C 790 216, 790 320, 840 320" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-6e842b88)" /><text x="790" y="262" font-size="10" font-weight="500" fill="var(--ak-text-secondary)" text-anchor="middle" font-family="var(--ak-font-sans)" style="stroke:none;stroke-width:0;">read/write memory</text></g><g class="ak-node" data-node-id="customer" data-label="Customer" data-role="external" data-desc="Reaches the bot via Telegram or the web chat tab" tabindex="0">
+        <rect x="60" y="184" width="160" height="64" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="140" y="208" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">Customer</text>
+        <text x="140" y="226" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">external</text>
+      </g><g class="ak-node" data-node-id="admin-spa" data-label="Admin/Web SPA" data-role="frontend" data-desc="React admin dashboard; also hosts each account&apos;s own web chat" tabindex="0">
+        <rect x="60" y="80" width="160" height="64" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="140" y="104" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">Admin/Web SPA</text>
+        <text x="140" y="122" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">frontend</text>
+      </g><g class="ak-node" data-node-id="telegram-poller" data-label="Telegram Poller" data-role="worker" data-desc="Long-poll getUpdates ingress, no public webhook exposed" tabindex="0">
+        <rect x="320" y="184" width="160" height="64" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="400" y="208" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">Telegram Poller</text>
+        <text x="400" y="226" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">worker</text>
+      </g><g class="ak-node" data-node-id="backend-api" data-label="FastAPI Backend" data-role="gateway" data-desc="Primary entry point: auth, chat endpoints, admin routers" tabindex="0">
+        <rect x="320" y="80" width="160" height="64" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="400" y="104" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">FastAPI Backend</text>
+        <text x="400" y="122" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">gateway</text>
+      </g><g class="ak-node" data-node-id="langgraph-agent" data-label="LangGraph Agent" data-role="worker" data-desc="Orchestrates retrieval, generation and memory for one chat turn" tabindex="0">
+        <rect x="580" y="184" width="160" height="64" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="660" y="208" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">LangGraph Agent</text>
+        <text x="660" y="226" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">worker</text>
+      </g><g class="ak-node" data-node-id="guardrails" data-label="Guardrails" data-role="worker" data-desc="self_check_facts gate: refuses replies not grounded in retrieved chunks, then the gated reply flows back through the backend to the customer" tabindex="0">
+        <rect x="580" y="80" width="160" height="64" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="660" y="104" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">Guardrails</text>
+        <text x="660" y="122" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">worker</text>
+      </g><g class="ak-node" data-node-id="chroma" data-label="ChromaDB" data-role="database" data-desc="Vector store for the shop&apos;s knowledge-base documents" tabindex="0">
+        <rect x="840" y="80" width="160" height="64" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="920" y="104" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">ChromaDB</text>
+        <text x="920" y="122" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">database</text>
+      </g><g class="ak-node" data-node-id="openai" data-label="OpenAI API" data-role="external" data-desc="Chat completion and embeddings (swappable to an OpenAI-compatible endpoint)" tabindex="0">
+        <rect x="840" y="184" width="160" height="64" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="920" y="208" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">OpenAI API</text>
+        <text x="920" y="226" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">external</text>
+      </g><g class="ak-node" data-node-id="sqlite" data-label="SQLite / Postgres" data-role="database" data-desc="Accounts, message history, favourites, notes, summaries" tabindex="0">
+        <rect x="840" y="288" width="160" height="64" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="920" y="312" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">SQLite / Postgres</text>
+        <text x="920" y="330" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">database</text>
+      </g><g class="ak-node" data-node-id="monitoring" data-label="Prometheus + Grafana" data-role="worker" data-desc="Scrapes the backend&apos;s /metrics endpoint plus host/container metrics; sits outside the request path entirely" tabindex="0">
+        <rect x="1100" y="80" width="160" height="64" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="1180" y="104" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">Prometheus + Grafana</text>
+        <text x="1180" y="122" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">worker</text>
+      </g></svg>

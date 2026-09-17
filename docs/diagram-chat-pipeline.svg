@@ -1,0 +1,118 @@
+<svg class="ak-diagram-svg" viewBox="0 0 1540 750" width="100%" height="auto" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Matcha Bot — Chat Turn Pipeline"><title>Matcha Bot — Chat Turn Pipeline</title><defs><style>
+      svg {
+        --ak-bg: #ffffff; --ak-surface: #f8fafc; --ak-surface-border: #e2e8f0;
+        --ak-text-primary: #0f172a; --ak-text-secondary: #475569; --ak-text-muted: #94a3b8;
+        --ak-accent: #2563eb; --ak-node-bg: #ffffff; --ak-node-border: #cbd5e1;
+        --ak-edge-stroke: #64748b; --ak-edge-active: #2563eb;
+        --ak-font-sans: system-ui, -apple-system, sans-serif;
+        font-family: var(--ak-font-sans);
+      }
+      svg { --ak-bg: #090d16; --ak-text-primary: #f8fafc; --ak-text-secondary: #94a3b8; --ak-node-bg: #0f172a; --ak-node-border: #334155; --ak-edge-stroke: #475569; --ak-edge-active: #38bdf8; }
+      svg { --ak-accent: #06b6d4; --ak-edge-stroke: #0ea5e9; --ak-edge-active: #38bdf8; }
+      
+      
+    </style><marker id="ak-arrowhead-98d4c1bf" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="var(--ak-edge-stroke)" />
+    </marker>
+  </defs><g class="ak-lane" data-lane-id="customer">
+        <rect x="40" y="64" width="600" height="96" rx="8" fill="var(--ak-surface)" stroke="var(--ak-surface-border)" stroke-width="1" />
+        <text x="52" y="96" font-size="12" font-weight="700" fill="var(--ak-text-secondary)" font-family="var(--ak-font-sans)">Customer (Telegram / Web)</text>
+      </g><g class="ak-lane" data-lane-id="entry">
+        <rect x="40" y="190" width="1080" height="96" rx="8" fill="var(--ak-surface)" stroke="var(--ak-surface-border)" stroke-width="1" />
+        <text x="52" y="222" font-size="12" font-weight="700" fill="var(--ak-text-secondary)" font-family="var(--ak-font-sans)">Channel entry</text>
+      </g><g class="ak-lane" data-lane-id="agent">
+        <rect x="40" y="316" width="1500" height="96" rx="8" fill="var(--ak-surface)" stroke="var(--ak-surface-border)" stroke-width="1" />
+        <text x="52" y="348" font-size="12" font-weight="700" fill="var(--ak-text-secondary)" font-family="var(--ak-font-sans)">LangGraph Agent</text>
+      </g><g class="ak-lane" data-lane-id="guardrail">
+        <rect x="40" y="442" width="660" height="96" rx="8" fill="var(--ak-surface)" stroke="var(--ak-surface-border)" stroke-width="1" />
+        <text x="52" y="474" font-size="12" font-weight="700" fill="var(--ak-text-secondary)" font-family="var(--ak-font-sans)">Guardrails</text>
+      </g><g class="ak-lane" data-lane-id="background">
+        <rect x="40" y="568" width="1080" height="96" rx="8" fill="var(--ak-surface)" stroke="var(--ak-surface-border)" stroke-width="1" />
+        <text x="52" y="600" font-size="12" font-weight="700" fill="var(--ak-text-secondary)" font-family="var(--ak-font-sans)">Background workers</text>
+      </g><g class="ak-edge" data-from="send-msg" data-to="webhook-or-chat" data-edge-id="edge-send-msg-webhook-or-chat-0">
+        <path d="M 390 108 C 450 148, 180 274, 240 234" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-98d4c1bf)" /></g><g class="ak-edge" data-from="webhook-or-chat" data-to="daily-limit" data-edge-id="edge-webhook-or-chat-daily-limit-1">
+        <path d="M 390 234 C 430 234, 410 234, 450 234" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-98d4c1bf)" /></g><g class="ak-edge" data-from="daily-limit" data-to="limit-reply" data-edge-id="edge-daily-limit-limit-reply-2">
+        <path d="M 600 234 C 640 234, 620 234, 660 234" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-98d4c1bf)" /><text x="630" y="228" font-size="10" font-weight="500" fill="var(--ak-text-secondary)" text-anchor="middle" font-family="var(--ak-font-sans)" style="stroke:none;stroke-width:0;">yes</text></g><g class="ak-edge" data-from="daily-limit" data-to="fetch-history" data-edge-id="edge-daily-limit-fetch-history-3">
+        <path d="M 600 234 C 660 274, 180 400, 240 360" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-98d4c1bf)" /><text x="420" y="291" font-size="10" font-weight="500" fill="var(--ak-text-secondary)" text-anchor="middle" font-family="var(--ak-font-sans)" style="stroke:none;stroke-width:0;">no</text></g><g class="ak-edge" data-from="fetch-history" data-to="rewrite-query" data-edge-id="edge-fetch-history-rewrite-query-4">
+        <path d="M 390 360 C 430 360, 410 360, 450 360" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-98d4c1bf)" /></g><g class="ak-edge" data-from="rewrite-query" data-to="retrieve" data-edge-id="edge-rewrite-query-retrieve-5">
+        <path d="M 600 360 C 640 360, 620 360, 660 360" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-98d4c1bf)" /></g><g class="ak-edge" data-from="retrieve" data-to="retrieval-empty" data-edge-id="edge-retrieve-retrieval-empty-6">
+        <path d="M 810 360 C 850 360, 830 360, 870 360" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-98d4c1bf)" /></g><g class="ak-edge" data-from="retrieval-empty" data-to="generate" data-edge-id="edge-retrieval-empty-generate-7">
+        <path d="M 1020 360 C 1155 360, 1155 360, 1290 360" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-98d4c1bf)" /><text x="1155" y="354" font-size="10" font-weight="500" fill="var(--ak-text-secondary)" text-anchor="middle" font-family="var(--ak-font-sans)" style="stroke:none;stroke-width:0;">yes -&gt; answer with no KB context</text></g><g class="ak-edge" data-from="retrieval-empty" data-to="rerank" data-edge-id="edge-retrieval-empty-rerank-8">
+        <path d="M 1020 360 C 1060 360, 1040 360, 1080 360" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-98d4c1bf)" /><text x="1050" y="354" font-size="10" font-weight="500" fill="var(--ak-text-secondary)" text-anchor="middle" font-family="var(--ak-font-sans)" style="stroke:none;stroke-width:0;">no</text></g><g class="ak-edge" data-from="rerank" data-to="generate" data-edge-id="edge-rerank-generate-9">
+        <path d="M 1230 360 C 1270 360, 1250 360, 1290 360" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-98d4c1bf)" /></g><g class="ak-edge" data-from="generate" data-to="check-grounded" data-edge-id="edge-generate-check-grounded-10">
+        <path d="M 1440 360 C 1500 400, 180 526, 240 486" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-98d4c1bf)" /></g><g class="ak-edge" data-from="check-grounded" data-to="refuse" data-edge-id="edge-check-grounded-refuse-11">
+        <path d="M 390 486 C 430 486, 410 486, 450 486" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-98d4c1bf)" /><text x="420" y="480" font-size="10" font-weight="500" fill="var(--ak-text-secondary)" text-anchor="middle" font-family="var(--ak-font-sans)" style="stroke:none;stroke-width:0;">not grounded</text></g><g class="ak-edge" data-from="check-grounded" data-to="persist-reply" data-edge-id="edge-check-grounded-persist-reply-12">
+        <path d="M 390 486 C 630 486, 630 234, 870 234" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-98d4c1bf)" /><text x="630" y="354" font-size="10" font-weight="500" fill="var(--ak-text-secondary)" text-anchor="middle" font-family="var(--ak-font-sans)" style="stroke:none;stroke-width:0;">grounded / skipped / rail error</text></g><g class="ak-edge" data-from="refuse" data-to="persist-reply" data-edge-id="edge-refuse-persist-reply-13">
+        <path d="M 600 486 C 735 486, 735 234, 870 234" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-98d4c1bf)" /></g><g class="ak-edge" data-from="persist-reply" data-to="extract-favourite" data-edge-id="edge-persist-reply-extract-favourite-14">
+        <path d="M 1020 234 C 1080 274, 180 652, 240 612" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-98d4c1bf)" /></g><g class="ak-edge" data-from="persist-reply" data-to="extract-notes" data-edge-id="edge-persist-reply-extract-notes-15">
+        <path d="M 1020 234 C 1080 274, 390 652, 450 612" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-98d4c1bf)" /></g><g class="ak-edge" data-from="persist-reply" data-to="extract-recommendation" data-edge-id="edge-persist-reply-extract-recommendation-16">
+        <path d="M 1020 234 C 1080 274, 600 652, 660 612" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-98d4c1bf)" /></g><g class="ak-edge" data-from="persist-reply" data-to="maybe-summarize" data-edge-id="edge-persist-reply-maybe-summarize-17">
+        <path d="M 1020 234 C 1080 274, 810 652, 870 612" fill="none" stroke="var(--ak-edge-stroke)" stroke-width="2" marker-end="url(#ak-arrowhead-98d4c1bf)" /></g><g class="ak-node" data-node-id="send-msg" data-label="Send message" data-role="start" data-desc="" tabindex="0">
+        <rect x="240" y="80" width="150" height="56" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="315" y="104" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">Send message</text>
+        <text x="315" y="122" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">start</text>
+      </g><g class="ak-node" data-node-id="webhook-or-chat" data-label="process_telegram_message / POST admin/chat" data-role="action" data-desc="" tabindex="0">
+        <rect x="240" y="206" width="150" height="56" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="315" y="230" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">process_telegram_message / POST admin/chat</text>
+        <text x="315" y="248" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">action</text>
+      </g><g class="ak-node" data-node-id="daily-limit" data-label="Daily token limit hit?" data-role="decision" data-desc="" tabindex="0">
+        <rect x="450" y="206" width="150" height="56" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="525" y="230" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">Daily token limit hit?</text>
+        <text x="525" y="248" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">decision</text>
+      </g><g class="ak-node" data-node-id="limit-reply" data-label="Return fixed limit reply" data-role="terminal-success" data-desc="" tabindex="0">
+        <rect x="660" y="206" width="150" height="56" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="735" y="230" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">Return fixed limit reply</text>
+        <text x="735" y="248" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">terminal-success</text>
+      </g><g class="ak-node" data-node-id="fetch-history" data-label="fetch_history: last 10 msgs + summary + favourites + notes" data-role="action" data-desc="" tabindex="0">
+        <rect x="240" y="332" width="150" height="56" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="315" y="356" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">fetch_history: last 10 msgs + summary + favourites + notes</text>
+        <text x="315" y="374" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">action</text>
+      </g><g class="ak-node" data-node-id="rewrite-query" data-label="rewrite_query: condense to search query" data-role="action" data-desc="" tabindex="0">
+        <rect x="450" y="332" width="150" height="56" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="525" y="356" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">rewrite_query: condense to search query</text>
+        <text x="525" y="374" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">action</text>
+      </g><g class="ak-node" data-node-id="retrieve" data-label="retrieve: embed + Chroma query + score filter" data-role="action" data-desc="" tabindex="0">
+        <rect x="660" y="332" width="150" height="56" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="735" y="356" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">retrieve: embed + Chroma query + score filter</text>
+        <text x="735" y="374" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">action</text>
+      </g><g class="ak-node" data-node-id="retrieval-empty" data-label="0 chunks returned?" data-role="decision" data-desc="" tabindex="0">
+        <rect x="870" y="332" width="150" height="56" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="945" y="356" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">0 chunks returned?</text>
+        <text x="945" y="374" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">decision</text>
+      </g><g class="ak-node" data-node-id="rerank" data-label="rerank: LLM reorders by relevance" data-role="action" data-desc="" tabindex="0">
+        <rect x="1080" y="332" width="150" height="56" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="1155" y="356" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">rerank: LLM reorders by relevance</text>
+        <text x="1155" y="374" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">action</text>
+      </g><g class="ak-node" data-node-id="generate" data-label="generate: stream reply from system prompt + chunks" data-role="action" data-desc="" tabindex="0">
+        <rect x="1290" y="332" width="150" height="56" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="1365" y="356" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">generate: stream reply from system prompt + chunks</text>
+        <text x="1365" y="374" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">action</text>
+      </g><g class="ak-node" data-node-id="check-grounded" data-label="check_grounded: self_check_facts rail" data-role="decision" data-desc="" tabindex="0">
+        <rect x="240" y="458" width="150" height="56" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="315" y="482" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">check_grounded: self_check_facts rail</text>
+        <text x="315" y="500" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">decision</text>
+      </g><g class="ak-node" data-node-id="refuse" data-label="Substitute refusal reply" data-role="action" data-desc="" tabindex="0">
+        <rect x="450" y="458" width="150" height="56" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="525" y="482" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">Substitute refusal reply</text>
+        <text x="525" y="500" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">action</text>
+      </g><g class="ak-node" data-node-id="persist-reply" data-label="Save messages, send reply to customer" data-role="terminal-success" data-desc="" tabindex="0">
+        <rect x="870" y="206" width="150" height="56" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="945" y="230" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">Save messages, send reply to customer</text>
+        <text x="945" y="248" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">terminal-success</text>
+      </g><g class="ak-node" data-node-id="extract-favourite" data-label="extract_favourite" data-role="subprocess" data-desc="" tabindex="0">
+        <rect x="240" y="584" width="150" height="56" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="315" y="608" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">extract_favourite</text>
+        <text x="315" y="626" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">subprocess</text>
+      </g><g class="ak-node" data-node-id="extract-notes" data-label="extract_customer_notes (allergy/budget/sugar-ice)" data-role="subprocess" data-desc="" tabindex="0">
+        <rect x="450" y="584" width="150" height="56" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="525" y="608" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">extract_customer_notes (allergy/budget/sugar-ice)</text>
+        <text x="525" y="626" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">subprocess</text>
+      </g><g class="ak-node" data-node-id="extract-recommendation" data-label="extract_recommendation (KB-grounded only)" data-role="subprocess" data-desc="" tabindex="0">
+        <rect x="660" y="584" width="150" height="56" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="735" y="608" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">extract_recommendation (KB-grounded only)</text>
+        <text x="735" y="626" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">subprocess</text>
+      </g><g class="ak-node" data-node-id="maybe-summarize" data-label="maybe_summarize (rolling summary, 20-msg batches)" data-role="subprocess" data-desc="" tabindex="0">
+        <rect x="870" y="584" width="150" height="56" rx="8" fill="var(--ak-node-bg)" stroke="var(--ak-node-border)" stroke-width="1.5" />
+        <text x="945" y="608" font-size="12" font-weight="600" fill="var(--ak-text-primary)" text-anchor="middle" font-family="var(--ak-font-sans)">maybe_summarize (rolling summary, 20-msg batches)</text>
+        <text x="945" y="626" font-size="10" fill="var(--ak-text-muted)" text-anchor="middle" font-family="var(--ak-font-sans)">subprocess</text>
+      </g></svg>

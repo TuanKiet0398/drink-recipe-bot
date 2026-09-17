@@ -21,9 +21,9 @@ A drink-recipe (tea, matcha, etc.) consulting chatbot for a shop, served over Te
 
 ## Architecture / stack
 
-System diagram: [`docs/architecture-diagram.html`](docs/architecture-diagram.html) (animated, open in browser) / [`docs/architecture-diagram.svg`](docs/architecture-diagram.svg) (static image). A camera-tour version that pans/zooms across client → gateway/backend → data/AI → observability is at [`docs/architecture-full-camera-acts.html`](docs/architecture-full-camera-acts.html).
+System diagram: [`docs/diagram-system-architecture.html`](docs/diagram-system-architecture.html) (interactive reader — search, role filter, guided story chapters) / [`docs/diagram-system-architecture.svg`](docs/diagram-system-architecture.svg) (static image). The chat-turn pipeline (fetch history → retrieve → rerank → generate → guardrail check → background extractors) is diagrammed separately at [`docs/diagram-chat-pipeline.html`](docs/diagram-chat-pipeline.html) / [`docs/diagram-chat-pipeline.svg`](docs/diagram-chat-pipeline.svg). An older camera-tour version that pans/zooms across client → gateway/backend → data/AI → observability is kept at [`docs/architecture-full-camera-acts.html`](docs/architecture-full-camera-acts.html).
 
-![Matcha Bot architecture](docs/architecture-diagram.svg)
+![Matcha Bot architecture](docs/diagram-system-architecture.svg)
 
 | Layer | Tech |
 |---|---|
@@ -179,6 +179,6 @@ cd frontend && npm run test
 
 ## Design docs
 
-`docs/architecture-diagram.{html,svg}` and `docs/architecture-full-camera-acts.html` — the system diagrams above.
+`docs/diagram-system-architecture.{html,svg}` and `docs/diagram-chat-pipeline.{html,svg}` — the system diagrams above. `docs/architecture-full-camera-acts.html` — older camera-tour version, kept for reference.
 `docs/test-plan-full-coverage.md` — a manual test checklist across every feature (auth, chat memory, multi-user isolation, channels, docs, personality, settings, retention, logs, latency).
 Local implementation plans/specs (`docs/superpowers/`) are kept on disk for reference but are gitignored, not part of the repo history.
