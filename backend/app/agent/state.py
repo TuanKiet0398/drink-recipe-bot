@@ -11,4 +11,9 @@ class AgentState(BaseModel):
     customer_notes: dict[str, str] = Field(default_factory=dict)
     recommendation_history: list[str] = Field(default_factory=list)
     retrieved_chunks: list[str] = Field(default_factory=list)
+    # Parallel to retrieved_chunks (same order, same length) — source
+    # metadata for citation display. retrieved_chunks stays plain text so
+    # existing consumers (check_facts, extract_recommendation, generate)
+    # need no changes.
+    retrieved_sources: list[dict] = Field(default_factory=list)
     reply: str = ""

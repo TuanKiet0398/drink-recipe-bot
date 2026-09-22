@@ -99,6 +99,10 @@ class ConversationSummary(Base):
     last_summarized_message_id: Mapped[int | None] = mapped_column(
         ForeignKey("messages.id"), nullable=True
     )
+    # Consecutive maybe_summarize() failures since the last successful run.
+    # Reset to 0 on success; used to flag a batch that keeps failing to
+    # summarize (see SUMMARIZE_RUNS outcome="stuck" in app.metrics).
+    failed_attempts: Mapped[int] = mapped_column(default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
 

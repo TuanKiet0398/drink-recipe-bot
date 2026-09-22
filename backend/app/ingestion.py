@@ -82,7 +82,37 @@ def _chunk_via_llm(
     response = retry_once(_call, call_type="chunk_document", model=chat_model)
     log_token_usage(db, user_id, "chunk_document", chat_model, response.usage)
     parsed = json.loads(response.choices[0].message.content)
-    return [Chunk.model_validate(c) for c in parsed["chunks"]]
+    chunks = [Chunk.model_validate(c) for c in parsed["chunks"]]
+    _validate_coverage(chunks, piece_len=len(text))
+    return chunks
+
+
+def _validate_coverage(chunks: list[Chunk], piece_len: int) -> None:
+    """Raises if the chunks' combined `original_text` covers less than half
+    of the source piece — a sign the LLM dropped content rather than just
+    re-chunking it (mirrors WeKnora's chunk-coverage validator)."""
+    covered = sum(len(c.original_text) for c in chunks)
+    if piece_len > 0 and covered < piece_len * 0.5:
+        raise ValueError(f"chunk coverage too low: {covered}/{piece_len} chars")
+
+
+def _chunk_piece_with_retry(
+    piece: str, filename: str, chat_client, chat_model: str, db, user_id: int | None
+) -> list[Chunk]:
+    """Chunks one piece via the LLM, retrying once with the piece itself
+    re-split in half (smaller `max_chars`) if the first call fails or the
+    result fails coverage validation. A piece too large or malformed for
+    one call often chunks fine in two calls; only if the retry also fails
+    does the exception propagate to `chunk_document`'s whole-document
+    naive fallback."""
+    try:
+        return _chunk_via_llm(piece, filename, chat_client, chat_model, db, user_id)
+    except Exception:
+        logger.warning("LLM chunking failed for one piece of %s; retrying at half size", filename)
+        sub_chunks: list[Chunk] = []
+        for sub_piece in split_into_pieces(piece, max_chars=max(len(piece) // 2, 1)):
+            sub_chunks.extend(_chunk_via_llm(sub_piece, filename, chat_client, chat_model, db, user_id))
+        return sub_chunks
 
 
 def chunk_document(
@@ -98,14 +128,15 @@ def chunk_document(
     chunks via an LLM call. Documents longer than `max_chars` are
     pre-split on paragraph boundaries (`split_into_pieces`) and chunked one
     piece at a time, so a long document never blows a single LLM call's
-    context. Falls back to the naive `chunk_text()` splitter (wrapped as
-    single-field chunks) if any piece's LLM call fails or returns
-    unparseable output, so a provider outage never blocks a document
-    upload."""
+    context. A piece whose first call fails or under-covers its source text
+    is retried once at half size (`_chunk_piece_with_retry`). Falls back to
+    the naive `chunk_text()` splitter (wrapped as single-field chunks) for
+    the whole document if a piece still fails after retry, so a provider
+    outage never blocks a document upload."""
     try:
         chunks: list[Chunk] = []
         for piece in split_into_pieces(text, max_chars=max_chars):
-            chunks.extend(_chunk_via_llm(piece, filename, chat_client, chat_model, db, user_id))
+            chunks.extend(_chunk_piece_with_retry(piece, filename, chat_client, chat_model, db, user_id))
         if chunks:
             return chunks
     except Exception:

@@ -1,5 +1,8 @@
 import json
 import logging
+import math
+import os
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -184,6 +187,9 @@ def summarize_conversation(
     return (response.choices[0].message.content or "").strip() or old_summary
 
 
+STUCK_SUMMARIZE_ATTEMPTS = 3
+
+
 def maybe_summarize(
     db: Session,
     user_id: int,
@@ -232,7 +238,15 @@ def maybe_summarize(
     if new_summary == old_summary:
         # summarize_conversation() falls back to old_summary on LLM failure —
         # leave the cursor untouched so the same batch is retried next time.
-        record_summarize("failed")
+        if existing is None:
+            existing = ConversationSummary(user_id=user_id, failed_attempts=0)
+            db.add(existing)
+        existing.failed_attempts += 1
+        db.commit()
+        if existing.failed_attempts >= STUCK_SUMMARIZE_ATTEMPTS:
+            record_summarize("stuck")
+        else:
+            record_summarize("failed")
         return
 
     if existing is None:
@@ -240,8 +254,75 @@ def maybe_summarize(
         db.add(existing)
     existing.summary_text = new_summary
     existing.last_summarized_message_id = batch[-1].id
+    existing.failed_attempts = 0
     db.commit()
     record_summarize("ran")
+
+
+def _bm25_scores(query: str, documents: list[str]) -> list[float]:
+    """Minimal BM25 (k1=1.5, b=0.75) over `documents` for `query`. Used as
+    the keyword side of hybrid retrieval — no new dependency, no separate
+    search service: the KB is small enough to score in-process per query.
+
+    ponytail: rebuilds term frequencies from scratch every call. Fine while
+    the KB stays small (a shop menu/policies); if the collection grows past
+    a few thousand chunks, cache the index and invalidate it on
+    embed_and_upsert instead of rescoring here.
+    """
+
+    def _tokenize(text: str) -> list[str]:
+        return re.findall(r"\w+", text.lower())
+
+    query_terms = set(_tokenize(query))
+    if not query_terms or not documents:
+        return [0.0] * len(documents)
+
+    doc_tokens = [_tokenize(doc) for doc in documents]
+    doc_lens = [len(toks) for toks in doc_tokens]
+    avg_len = sum(doc_lens) / len(doc_lens) if doc_lens else 0.0
+    n_docs = len(documents)
+
+    doc_freq: dict[str, int] = {}
+    for term in query_terms:
+        doc_freq[term] = sum(1 for toks in doc_tokens if term in toks)
+
+    k1, b = 1.5, 0.75
+    scores = []
+    for toks, doc_len in zip(doc_tokens, doc_lens, strict=True):
+        score = 0.0
+        for term in query_terms:
+            df = doc_freq[term]
+            if df == 0:
+                continue
+            idf = math.log((n_docs - df + 0.5) / (df + 0.5) + 1)
+            tf = toks.count(term)
+            if tf == 0:
+                continue
+            denom = tf + k1 * (1 - b + b * doc_len / avg_len) if avg_len else tf + k1
+            score += idf * (tf * (k1 + 1)) / denom
+        scores.append(score)
+    return scores
+
+
+def _fuse_rrf(
+    vector_scores: dict[str, float], keyword_scores: dict[str, float], k: int = 60
+) -> list[str]:
+    """Reciprocal Rank Fusion: merges two rank-ordered candidate sets by
+    1/(k+rank) per source, summed, sorted descending. Ports WeKnora's
+    fuseWithRRF — no per-source weighting here (no equivalent config knob
+    in this codebase), k=60 fixed (WeKnora's typical default)."""
+    vector_ranked = sorted(vector_scores, key=vector_scores.get, reverse=True)
+    keyword_ranked = sorted(keyword_scores, key=keyword_scores.get, reverse=True)
+    vector_ranks = {text: i + 1 for i, text in enumerate(vector_ranked)}
+    keyword_ranks = {text: i + 1 for i, text in enumerate(keyword_ranked)}
+
+    all_texts = set(vector_ranks) | set(keyword_ranks)
+    rrf_scores = {
+        text: (1.0 / (k + vector_ranks[text]) if text in vector_ranks else 0.0)
+        + (1.0 / (k + keyword_ranks[text]) if text in keyword_ranks else 0.0)
+        for text in all_texts
+    }
+    return sorted(all_texts, key=rrf_scores.get, reverse=True)
 
 
 def retrieve(
@@ -281,38 +362,79 @@ def retrieve(
             query_texts.append(rewritten)
 
         best_scores: dict[str, float] = {}
+        sources: dict[str, dict] = {}
         for query_text in query_texts:
             embedding = _embed(query_text)
             result = coll.query(query_embeddings=[embedding], n_results=retrieval_k)
             texts = result["documents"][0] if result["documents"] else []
             distances = result["distances"][0] if result["distances"] else []
-            for text, distance in zip(texts, distances, strict=False):
+            metadatas = result["metadatas"][0] if result.get("metadatas") else [{}] * len(texts)
+            for text, distance, metadata in zip(texts, distances, metadatas, strict=False):
                 score = 1 - distance
                 if score >= score_threshold:
                     best_scores[text] = max(best_scores.get(text, score), score)
+                    sources[text] = metadata or {}
+
+        # Keyword side of hybrid retrieval: BM25 over the whole collection,
+        # fused with the vector results via RRF. A collection too small or
+        # empty just yields no keyword matches, so vector-only behavior
+        # (the merged/sorted list below) is unaffected.
+        keyword_scores: dict[str, float] = {}
+        try:
+            all_docs = coll.get(include=["documents", "metadatas"])
+            doc_texts = all_docs.get("documents") or []
+            doc_metadatas = all_docs.get("metadatas") or [{}] * len(doc_texts)
+            bm25 = _bm25_scores(state.incoming_text, doc_texts)
+            for text, score, metadata in zip(doc_texts, bm25, doc_metadatas, strict=True):
+                if score > 0:
+                    keyword_scores[text] = score
+                    sources.setdefault(text, metadata or {})
+        except Exception:
+            logger.exception("BM25 keyword search failed for user_id=%s; using vector-only results", state.user_id)
     except Exception:
         # Tolerate a not-yet-existing (or otherwise unreachable) collection:
         # fall back to no retrieved context rather than failing the whole
         # agent turn.
         logger.exception("retrieval failed for user_id=%s", state.user_id)
         state.retrieved_chunks = []
+        state.retrieved_sources = []
         RETRIEVE_CHUNKS.observe(0)
         record_retrieval_empty()
         return state
 
-    merged = sorted(best_scores, key=best_scores.get, reverse=True)
-    state.retrieved_chunks = rerank(state.incoming_text, merged, chat_client, chat_model, db, state.user_id)[
-        :final_k
-    ]
+    if keyword_scores:
+        merged = _fuse_rrf(best_scores, keyword_scores)
+    else:
+        merged = sorted(best_scores, key=best_scores.get, reverse=True)
+
+    final_chunks = rerank(state.incoming_text, merged, chat_client, chat_model, db, state.user_id)[:final_k]
+    state.retrieved_chunks = final_chunks
+    state.retrieved_sources = [sources.get(chunk, {}) for chunk in final_chunks]
     RETRIEVE_CHUNKS.observe(len(state.retrieved_chunks))
     if not state.retrieved_chunks:
         record_retrieval_empty()
     return state
 
 
+def _paired_chunks_and_sources(state: AgentState) -> list[tuple[str, dict]]:
+    """Zips retrieved_chunks with retrieved_sources, tolerating a state
+    built without retrieved_sources (older callers/tests constructing
+    AgentState directly)."""
+    sources = state.retrieved_sources or [{}] * len(state.retrieved_chunks)
+    return list(zip(state.retrieved_chunks, sources, strict=False))
+
+
+def _source_suffix(source: dict) -> str:
+    filename = (source or {}).get("filename")
+    return f" (from: {filename})" if filename else ""
+
+
 def _build_system_prompt(state: AgentState) -> str:
     favourites = ", ".join(state.favourites) or "none known yet"
-    context = "\n".join(f"- {chunk}" for chunk in state.retrieved_chunks) or "(no matching knowledge found)"
+    context = (
+        "\n".join(f"- {chunk}{_source_suffix(source)}" for chunk, source in _paired_chunks_and_sources(state))
+        or "(no matching knowledge found)"
+    )
     soul = _load_soul()
     soul_section = f"{soul}\n\n" if soul else ""
     summary_section = (
@@ -364,6 +486,51 @@ def _build_system_prompt(state: AgentState) -> str:
     )
 
 
+MAX_PROMPT_TOKENS = int(os.environ.get("MAX_PROMPT_TOKENS", 6000))
+
+
+def _estimate_tokens(text: str) -> int:
+    """chars/4 heuristic — the same fallback WeKnora's own token estimator
+    uses when its BPE tokenizer call fails; "close enough to trigger... at
+    roughly the right time" per their own stated bar. No tokenizer
+    dependency needed for a threshold check."""
+    return len(text) // 4
+
+
+def _estimate_message_tokens(message: dict) -> int:
+    return _estimate_tokens(message.get("content", "")) + 4  # small per-message overhead
+
+
+def _fit_history_to_budget(
+    system_prompt: str, history: list[dict], incoming_text: str, budget: int
+) -> list[dict]:
+    """Keeps the newest history messages that fit `budget` tokens once the
+    fixed cost of the system prompt and the incoming message is subtracted,
+    dropping the oldest first. Guards generate()'s actual request size
+    against the model's context window — the message-count threshold in
+    maybe_summarize() never looks at what generate() is about to send."""
+    fixed_cost = _estimate_tokens(system_prompt) + _estimate_tokens(incoming_text) + 8
+    remaining = budget - fixed_cost
+
+    kept: list[dict] = []
+    used = 0
+    for message in reversed(history):
+        cost = _estimate_message_tokens(message)
+        if used + cost > remaining:
+            break
+        kept.append(message)
+        used += cost
+    kept.reverse()
+
+    if len(kept) < len(history):
+        logger.warning(
+            "generate() prompt over budget (%d tokens); trimmed %d oldest history message(s)",
+            budget,
+            len(history) - len(kept),
+        )
+    return kept
+
+
 def generate(
     state: AgentState,
     db: Session,
@@ -371,8 +538,9 @@ def generate(
     model: str,
     on_delta: Callable[[str], None] | None = None,
 ) -> AgentState:
-    messages = [{"role": "system", "content": _build_system_prompt(state)}]
-    messages.extend(state.history)
+    system_prompt = _build_system_prompt(state)
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend(_fit_history_to_budget(system_prompt, state.history, state.incoming_text, MAX_PROMPT_TOKENS))
     messages.append({"role": "user", "content": state.incoming_text})
 
     def _stream_once() -> tuple[str, object]:

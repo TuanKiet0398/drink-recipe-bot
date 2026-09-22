@@ -6,6 +6,8 @@ import pytest
 
 from app.agent import nodes
 from app.agent.nodes import (
+    _bm25_scores,
+    _fuse_rrf,
     check_facts,
     extract_customer_notes,
     extract_favourite,
@@ -184,11 +186,15 @@ def test_fetch_history_customer_notes_empty_when_no_rows_exist(db_session, chann
     assert result.customer_notes == {}
 
 
-def _fake_chroma(query_results):
+def _fake_chroma(query_results, get_result=None):
     """query_results: a list of {"documents": [[...]], "distances": [[...]]}
-    dicts, consumed in order by successive collection.query() calls."""
+    dicts, consumed in order by successive collection.query() calls.
+    get_result: the {"documents": [...], "metadatas": [...]} return value for
+    collection.get() (the BM25 keyword side) — defaults to empty so tests
+    that don't care about hybrid retrieval get no keyword matches."""
     fake_collection = MagicMock()
     fake_collection.query.side_effect = query_results
+    fake_collection.get.return_value = get_result or {"documents": [], "metadatas": []}
     fake_chroma = MagicMock()
     fake_chroma.get_or_create_collection.return_value = fake_collection
     return fake_chroma, fake_collection
@@ -316,6 +322,83 @@ def test_retrieve_retries_openai_embedding_once_then_succeeds(db_session):
     assert result.retrieved_chunks == []
 
 
+def test_retrieve_populates_sources_in_the_same_order_as_chunks(db_session):
+    state = AgentState(user_id=1, chat_id="1", incoming_text="how to brew matcha?")
+    fake_openai = _fake_openai_with_rewrite(rewritten_text="how to brew matcha?")
+    fake_chroma, _ = _fake_chroma(
+        [
+            {
+                "documents": [["Whisk matcha with a bamboo chasen."]],
+                "distances": [[0.1]],
+                "metadatas": [[{"filename": "brewing.txt", "document_id": 7}]],
+            }
+        ]
+    )
+
+    result = retrieve(
+        state,
+        db_session,
+        chroma_client=fake_chroma,
+        chat_client=fake_openai,
+        embedding_client=fake_openai,
+        chat_model="gpt-4o-mini",
+    )
+
+    assert result.retrieved_chunks == ["Whisk matcha with a bamboo chasen."]
+    assert result.retrieved_sources == [{"filename": "brewing.txt", "document_id": 7}]
+
+
+def test_retrieve_surfaces_a_keyword_only_match_via_bm25_rrf_fusion(db_session):
+    # "hojicha" scores low on the (fake) embedding but is an exact keyword
+    # hit — hybrid fusion should surface it even though vector search alone
+    # (below) wouldn't clear the score threshold.
+    state = AgentState(user_id=1, chat_id="1", incoming_text="do you have hojicha?")
+    fake_openai = _fake_openai_with_rewrite(rewritten_text="do you have hojicha?")
+    fake_chroma, _ = _fake_chroma(
+        [{"documents": [["Matcha latte recipe."]], "distances": [[0.1]]}],
+        get_result={
+            "documents": ["Matcha latte recipe.", "Hojicha is a roasted green tea."],
+            "metadatas": [{"filename": "matcha.txt"}, {"filename": "hojicha.txt"}],
+        },
+    )
+
+    result = retrieve(
+        state,
+        db_session,
+        chroma_client=fake_chroma,
+        chat_client=fake_openai,
+        embedding_client=fake_openai,
+        chat_model="gpt-4o-mini",
+    )
+
+    assert "Hojicha is a roasted green tea." in result.retrieved_chunks
+    sources_by_chunk = dict(zip(result.retrieved_chunks, result.retrieved_sources, strict=True))
+    assert sources_by_chunk["Hojicha is a roasted green tea."] == {"filename": "hojicha.txt"}
+
+
+def test_bm25_scores_ranks_exact_term_match_above_unrelated_document():
+    documents = ["Hojicha is a roasted green tea.", "Matcha latte recipe with steamed milk."]
+    scores = _bm25_scores("hojicha", documents)
+    assert scores[0] > scores[1]
+
+
+def test_bm25_scores_returns_zeros_for_empty_query_or_documents():
+    assert _bm25_scores("", ["some text"]) == [0.0]
+    assert _bm25_scores("some query", []) == []
+
+
+def test_fuse_rrf_ranks_item_present_in_both_sources_above_single_source_items():
+    vector_scores = {"A": 0.9, "B": 0.5}
+    keyword_scores = {"B": 10.0, "C": 5.0}
+
+    fused = _fuse_rrf(vector_scores, keyword_scores)
+
+    # B is top-ranked in both vector (2nd) and keyword (1st) results, so its
+    # combined RRF score beats A (vector-only, 1st) and C (keyword-only, 2nd).
+    assert fused[0] == "B"
+    assert set(fused) == {"A", "B", "C"}
+
+
 def test_rewrite_query_falls_back_to_original_question_when_llm_fails():
     fake_openai = MagicMock()
     fake_openai.chat.completions.create.side_effect = RuntimeError("down")
@@ -383,6 +466,65 @@ def test_generate_calls_openai_with_context_and_sets_reply(db_session):
     assert "hojicha" in system_message
     assert "Ceremonial grade matcha is best whisked, not shaken." in system_message
     assert result.reply == "Try our ceremonial grade matcha!"
+
+
+def test_generate_trims_oldest_history_when_over_the_token_budget(db_session):
+    # Each history message is ~2500 chars (~625 tokens); with a tiny budget
+    # only the newest one or two fit, so the oldest must be dropped.
+    long_message = "x" * 2500
+    state = AgentState(
+        user_id=1,
+        chat_id="1",
+        incoming_text="hi",
+        history=[
+            {"role": "user", "content": f"{long_message}-oldest"},
+            {"role": "assistant", "content": f"{long_message}-middle"},
+            {"role": "user", "content": f"{long_message}-newest"},
+        ],
+    )
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value = _fake_stream("ok")
+
+    with patch("app.agent.nodes.MAX_PROMPT_TOKENS", 1500):
+        generate(state, db_session, chat_client=fake_openai, model="gpt-4o-mini")
+
+    call_kwargs = fake_openai.chat.completions.create.call_args.kwargs
+    history_contents = [m["content"] for m in call_kwargs["messages"][1:-1]]
+    assert not any("oldest" in c for c in history_contents)
+    assert any("newest" in c for c in history_contents)
+
+
+def test_generate_keeps_full_history_when_under_the_token_budget(db_session):
+    state = AgentState(
+        user_id=1,
+        chat_id="1",
+        incoming_text="hi",
+        history=[{"role": "user", "content": "short message one"}, {"role": "assistant", "content": "short reply"}],
+    )
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value = _fake_stream("ok")
+
+    generate(state, db_session, chat_client=fake_openai, model="gpt-4o-mini")
+
+    call_kwargs = fake_openai.chat.completions.create.call_args.kwargs
+    # system + 2 history + user
+    assert len(call_kwargs["messages"]) == 4
+
+
+def test_fit_history_to_budget_drops_oldest_first():
+    history = [
+        {"role": "user", "content": "a" * 400},
+        {"role": "assistant", "content": "b" * 400},
+        {"role": "user", "content": "c" * 400},
+    ]
+    kept = nodes._fit_history_to_budget("system", history, "incoming", budget=200)
+    assert kept == history[-1:]
+
+
+def test_fit_history_to_budget_keeps_everything_under_budget():
+    history = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"}]
+    kept = nodes._fit_history_to_budget("system", history, "incoming", budget=6000)
+    assert kept == history
 
 
 def test_generate_calls_on_delta_with_accumulated_text_as_chunks_arrive(db_session):
@@ -824,8 +966,54 @@ def test_maybe_summarize_leaves_cursor_unchanged_on_llm_failure(db_session, chan
     with patch("app.retry.time.sleep"), patch("app.agent.nodes.record_summarize") as mock_record:
         maybe_summarize(db_session, user.id, fake_openai, "gpt-4o-mini")
 
-    assert db_session.query(ConversationSummary).filter_by(user_id=user.id).count() == 0
+    row = db_session.query(ConversationSummary).filter_by(user_id=user.id).one()
+    assert row.last_summarized_message_id is None  # cursor untouched, batch retried next time
+    assert row.failed_attempts == 1
     mock_record.assert_called_once_with("failed")
+
+
+def test_maybe_summarize_reports_stuck_after_repeated_failures(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="304")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    _add_messages(db_session, user.id, 30)
+
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.side_effect = RuntimeError("down")
+
+    with patch("app.retry.time.sleep"):
+        maybe_summarize(db_session, user.id, fake_openai, "gpt-4o-mini")
+        maybe_summarize(db_session, user.id, fake_openai, "gpt-4o-mini")
+        with patch("app.agent.nodes.record_summarize") as mock_record:
+            maybe_summarize(db_session, user.id, fake_openai, "gpt-4o-mini")
+
+    row = db_session.query(ConversationSummary).filter_by(user_id=user.id).one()
+    assert row.failed_attempts == 3
+    mock_record.assert_called_once_with("stuck")
+
+
+def test_maybe_summarize_resets_failed_attempts_on_success(db_session, channel_id):
+    user = User(channel_id=channel_id, telegram_user_id="305")
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    _add_messages(db_session, user.id, 30)
+
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.side_effect = RuntimeError("down")
+    with patch("app.retry.time.sleep"):
+        maybe_summarize(db_session, user.id, fake_openai, "gpt-4o-mini")
+
+    fake_openai.chat.completions.create.side_effect = None
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(message=MagicMock(content="recovered summary"))
+    ]
+    maybe_summarize(db_session, user.id, fake_openai, "gpt-4o-mini")
+
+    row = db_session.query(ConversationSummary).filter_by(user_id=user.id).one()
+    assert row.failed_attempts == 0
+    assert row.summary_text == "recovered summary"
 
 
 def test_build_system_prompt_includes_customer_notes_in_fixed_order():

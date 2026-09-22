@@ -163,6 +163,68 @@ def test_chunk_document_falls_back_when_llm_response_is_malformed_json(db_sessio
     assert chunks[0].original_text == "some document text"
 
 
+def test_chunk_document_retries_a_failing_piece_at_half_size_before_falling_back(db_session):
+    calls = []
+
+    def fake_create(*, messages, **kwargs):
+        piece_text = messages[0]["content"]
+        calls.append(piece_text)
+        if len(calls) == 1:
+            raise RuntimeError("provider down")
+        return MagicMock(
+            choices=[
+                MagicMock(
+                    message=MagicMock(
+                        content=json.dumps(
+                            {"chunks": [{"headline": "H", "summary": "S", "original_text": piece_text}]}
+                        )
+                    )
+                )
+            ],
+            usage=None,
+        )
+
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.side_effect = fake_create
+
+    paragraphs = [f"Paragraph {i}. " + ("x" * 40) for i in range(10)]
+    text = "\n\n".join(paragraphs)
+
+    with patch("app.retry.time.sleep"):
+        chunks = chunk_document(
+            text, "doc.txt", chat_client=fake_openai, chat_model="gpt-4o-mini", db=db_session, max_chars=120
+        )
+
+    # Recovered via retry rather than falling back to the naive word-count splitter.
+    assert any(c.headline == "H" for c in chunks)
+    assert len(calls) > 1
+
+
+def test_chunk_document_falls_back_when_coverage_is_too_low(db_session):
+    fake_openai = MagicMock()
+    fake_openai.chat.completions.create.return_value.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=json.dumps({"chunks": [{"headline": "H", "summary": "S", "original_text": "x"}]})
+            )
+        )
+    ]
+    fake_openai.chat.completions.create.return_value.usage = None
+
+    with patch("app.retry.time.sleep"):
+        chunks = chunk_document(
+            "a very long original document " * 20,
+            "doc.txt",
+            chat_client=fake_openai,
+            chat_model="gpt-4o-mini",
+            db=db_session,
+        )
+
+    # Coverage check rejects the near-empty chunk, and the retry also
+    # under-covers, so the document falls through to the naive splitter.
+    assert chunks[0].original_text.startswith("a very long")
+
+
 def test_embed_and_upsert_writes_chunk_text_and_metadata_to_chroma():
     fake_openai = MagicMock()
     fake_openai.embeddings.create.return_value.data = [MagicMock(embedding=[0.1, 0.2])]
