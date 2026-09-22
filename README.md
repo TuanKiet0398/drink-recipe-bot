@@ -4,7 +4,7 @@ A drink-recipe (tea, matcha, etc.) consulting chatbot for a shop, served over Te
 
 ## Key features
 
-- **RAG chatbot** on Telegram and in the admin panel's Chat tab: a LangGraph agent (`fetch_history → retrieve → generate`, `app/agent/graph.py`) answers customers via OpenAI, grounding responses on uploaded recipe documents retrieved from a Chroma vector DB — never invents a drink/ingredient outside those documents (`backend/SOUL.md` defines the bot's personality and tone, editable from the Personality page without a restart). A favourite drink, a customer note (allergy/preference), and a rolling conversation summary are inferred and saved in the background after each reply, and past recommendations are tracked so the bot doesn't blindly repeat itself.
+- **RAG chatbot** on Telegram and in the admin panel's Chat tab: a LangGraph agent (`fetch_history → retrieve → generate → check_facts`, `app/agent/graph.py`) answers customers via OpenAI, grounding responses on uploaded recipe documents retrieved by hybrid search (Chroma vector similarity + an in-process BM25 keyword pass, fused by reciprocal rank fusion) and citing each retrieved chunk's source filename — never invents a drink/ingredient outside those documents (`backend/SOUL.md` defines the bot's personality and tone, editable from the Personality page without a restart). A favourite drink, a customer note (allergy/preference), and a rolling conversation summary are inferred and saved in the background after each reply, and past recommendations are tracked so the bot doesn't blindly repeat itself. `generate()` also trims the oldest history messages when the assembled prompt would exceed a configurable token budget (`MAX_PROMPT_TOKENS`), so an unusually long conversation degrades gracefully instead of overflowing the model's context window.
 - **Per-account chat memory**: anyone can register a web account (`POST /auth/register`) and chat with the bot from the panel's Chat tab — each account gets its own isolated history, favourites, notes and summary (backed by a shared internal "web" channel, `app/routers/admin_chat.py`). "Reset conversation" clears message history only; favourites/notes/recommendations persist.
 - **Multi-channel, poll-based**: `ChannelManager` reconciles one long-polling task per active Telegram channel (`app/channel_manager.py`, `app/telegram_poller.py`) — no inbound HTTP webhook is exposed. Each channel's bot token is encrypted with AES-GCM (`app/crypto.py`) before being stored. Deleting a channel **soft-deletes** it by default (its users and their memory are kept; re-adding a channel with the same bot token revives the same row); `?force=true` permanently erases the channel and every one of its users' memory.
 - **React admin SPA**:
@@ -21,13 +21,13 @@ A drink-recipe (tea, matcha, etc.) consulting chatbot for a shop, served over Te
 
 ## Architecture / stack
 
-System diagram: [`docs/diagram-system-architecture.html`](docs/diagram-system-architecture.html) (interactive reader — search, role filter, guided story chapters) / [`docs/diagram-system-architecture.svg`](docs/diagram-system-architecture.svg) (static image). The chat-turn pipeline (fetch history → retrieve → rerank → generate → guardrail check → background extractors) is diagrammed separately at [`docs/diagram-chat-pipeline.html`](docs/diagram-chat-pipeline.html) / [`docs/diagram-chat-pipeline.svg`](docs/diagram-chat-pipeline.svg). An older camera-tour version that pans/zooms across client → gateway/backend → data/AI → observability is kept at [`docs/architecture-full-camera-acts.html`](docs/architecture-full-camera-acts.html).
+System diagram: [`docs/diagram-system-architecture.html`](docs/diagram-system-architecture.html) (interactive reader — search, role filter, guided story chapters) / [`docs/diagram-system-architecture.svg`](docs/diagram-system-architecture.svg) (static image). The chat-turn pipeline (fetch history → retrieve → rerank → generate → guardrail check → background extractors) is diagrammed separately at [`docs/diagram-chat-pipeline.html`](docs/diagram-chat-pipeline.html) / [`docs/diagram-chat-pipeline.svg`](docs/diagram-chat-pipeline.svg). A camera-tour version that pans/zooms across ACT 1 clients → ACT 2 backend/gateway → ACT 3 AI & data → ACT 4 observability (Telegram + admin clients, the poller/webhook backend, the LangGraph agent with hybrid vector+BM25 retrieval and the OpenAI/SQL/Chroma calls it makes, and the Prometheus/Grafana monitoring stack) is at [`docs/architecture/matcha-bot-system-architecture-camera-acts.html`](docs/architecture/matcha-bot-system-architecture-camera-acts.html); an older, narrower camera-tour cut is kept for reference at [`docs/architecture-full-camera-acts.html`](docs/architecture-full-camera-acts.html). A sequence diagram of one chat turn (Excalidraw JSON, open at excalidraw.com) is at [`docs/architecture/matcha-bot-sequence.excalidraw`](docs/architecture/matcha-bot-sequence.excalidraw).
 
 ![Matcha Bot architecture](docs/diagram-system-architecture.svg)
 
 | Layer | Tech |
 |---|---|
-| Backend | FastAPI, SQLAlchemy + Alembic, LangGraph (agent graph: fetch_history → retrieve → generate, plus background extractors for favourites/notes/summary/recommendations) |
+| Backend | FastAPI, SQLAlchemy + Alembic, LangGraph (agent graph: fetch_history → retrieve → generate → check_facts, plus background extractors for favourites/notes/summary/recommendations) |
 | Vector DB | ChromaDB |
 | LLM | OpenAI API |
 | Database | SQLite (default) / PostgreSQL supported via `DATABASE_URL` |
@@ -53,7 +53,7 @@ backend/
     channel_manager.py    # spawns/reconciles one long-poll task per active Telegram channel
     telegram_poller.py    # per-channel long-poll loop (get_updates)
     telegram_client.py    # Telegram Bot API HTTP calls
-    ingestion.py           # chunk + embed uploaded docs into Chroma (long documents are pre-split)
+    ingestion.py           # chunk + embed uploaded docs into Chroma (long documents are pre-split; a failing/low-coverage chunking piece is retried once at half size before falling back to naive word-count chunking)
     retention.py           # background loop purging inactive customers' message history (30 days)
     crypto.py              # token/credential encryption (AES-GCM)
     retry.py                # single-retry wrapper used around LLM/embedding calls
@@ -164,6 +164,7 @@ GitHub Actions (`.github/workflows/deploy.yml`) runs on every push to `main`:
 | `ENCRYPTION_KEY` | Key used to encrypt each channel's bot token |
 | `DATABASE_URL` | DB connection string (defaults to SQLite) |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Admin dashboard login credentials |
+| `MAX_PROMPT_TOKENS` | Token budget (chars/4 estimate) for `generate()`'s assembled prompt; oldest history messages are trimmed once it's exceeded (default `6000`) |
 
 Never commit a real `.env` file — it's already blocked by `.gitignore` at both the root and per-package level.
 
